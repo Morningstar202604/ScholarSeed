@@ -1,0 +1,46 @@
+{
+  "name": "scholarseed",
+  "version": "0.6.0",
+  "description": "Proof-carrying paper pipeline: 41 deterministic gates + live citation verification for academic writing. Pure Python under an npm launcher — same engine as the MCP server and CLI.",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://gitcode.com/badhope/ScholarSeed.git"
+  },
+  "homepage": "https://gitcode.com/badhope/ScholarSeed",
+  "bugs": "https://gitcode.com/badhope/ScholarSeed/issues",
+  "bin": {
+    "scholarseed": "bin/cli.js",
+    "scholarseed-mcp": "bin/mcp.js"
+  },
+  "files": [
+    "bin/",
+    "scripts/",
+    "skills/",
+    "data/",
+    "docs/",
+    "plugin.json",
+    "mcp.json",
+    "smithery.yaml",
+    "README.md",
+    "README.zh-CN.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "academic-writing",
+    "citation-checker",
+    "research-integrity",
+    "mcp",
+    "mcp-server",
+    "proofreading",
+    "thesis",
+    "latex",
+    "paper",
+    "hallucination",
+    "quality-gate"
+  ],
+  "engines": {
+    "node": ">=16"
+  }
+}
