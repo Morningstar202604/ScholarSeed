@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="ScholarSeed logo">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4338CA"/>
+      <stop offset="1" stop-color="#0891B2"/>
+    </linearGradient>
+    <linearGradient id="leafL" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#34D399"/>
+      <stop offset="1" stop-color="#A7F3D0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="104" fill="url(#bg)"/>
+
+  <!-- open book -->
+  <path d="M92 356 C158 322 224 322 256 348 C288 322 354 322 420 356 L420 404 C354 370 288 370 256 396 C224 370 158 370 92 404 Z"
+        fill="#FFFFFF" opacity="0.96"/>
+  <path d="M256 348 L256 396" stroke="#C7D2FE" stroke-width="10" stroke-linecap="round"/>
+
+  <!-- sprout stem -->
+  <path d="M256 348 C256 300 252 264 244 232" stroke="#ECFDF5" stroke-width="20" stroke-linecap="round" fill="none"/>
+
+  <!-- left leaf -->
+  <path d="M250 272 C192 272 156 238 146 182 C202 190 242 224 250 272 Z" fill="url(#leafL)"/>
+
+  <!-- right leaf -->
+  <path d="M242 240 C296 244 330 214 340 160 C286 168 248 198 242 240 Z" fill="#FFFFFF"/>
+
+  <!-- verification badge -->
+  <circle cx="386" cy="126" r="58" fill="#10B981"/>
+  <circle cx="386" cy="126" r="58" fill="none" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="8"/>
+  <path d="M358 128 L378 148 L416 106" stroke="#FFFFFF" stroke-width="16" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- seed dot -->
+  <circle cx="176" cy="150" r="14" fill="#FDE68A"/>
+</svg>

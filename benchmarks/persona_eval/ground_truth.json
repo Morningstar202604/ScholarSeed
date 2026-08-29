@@ -1,0 +1,65 @@
+{
+  "version": "0.1.0",
+  "note": "埋雷清单：每条 expect 是审稿人/教授视角下'必须被抓到'的真实缺陷。gate=null 表示不走 gate_suite 的专项检查（kind=citation 为联网核验）。detail_contains 用于在同一 gate 内区分具体命中。",
+  "papers": [
+    {
+      "file": "papers/nature_style.md",
+      "genre": "empirical",
+      "label": "Nature 风格实证论文（英文，质量中上，8 处埋雷）",
+      "expect": [
+        {"gate": "stats", "type": "p_zero", "detail_contains": "p=0.000", "label": "p=0.000 统计红线"},
+        {"gate": "figures", "type": "phantom_reference", "label": "Figure 4 无对应题注（幽灵图表）"},
+        {"gate": "terms", "type": "undefined_acronym", "detail_contains": "OXPHOS", "label": "OXPHOS 未定义先用"},
+        {"gate": "numbers", "type": "partition_sum_overflow", "label": "样本分桶矛盾：320 人 vs 180+200"},
+        {"gate": "duplicates", "type": "duplicate_sentence", "label": "整句在 Results 与 Discussion 逐字重复"},
+        {"gate": "intext", "type": "no_intext_citations", "label": "正文零引用标记（ Nature 式编号文献却无一处正文引用）"},
+        {"gate": "style", "type": null, "detail_contains": "revolution", "label": "过度声明：completely revolutionizes"},
+        {"gate": null, "kind": "citation", "doi": "10.1093/fake.journal.2026.001", "expect_grade": "C", "label": "编造 DOI [5] 联网核验应为 C"}
+      ]
+    },
+    {
+      "file": "papers/ssci_management.md",
+      "genre": "empirical",
+      "label": "SSCI 管理学实证论文（英文 APA，质量中等，10 处埋雷）",
+      "expect": [
+        {"gate": "title", "type": null, "label": "标题空泛（A Study of）且冗长"},
+        {"gate": "abstract", "type": null, "label": "实证摘要缺量化结果"},
+        {"gate": "numbers", "type": "sample_size_conflict", "label": "样本口径矛盾：250 vs 180"},
+        {"gate": "numbers", "type": "percent_overflow", "label": "同段百分比加和 125%"},
+        {"gate": "references_format", "type": "future_year", "label": "参考文献年份 2027（未来年份幻觉信号）"},
+        {"gate": "style", "type": "ai_flavor", "label": "AI 高频词（delve 等）"},
+        {"gate": "style", "type": "long_sentence", "label": "超长句（70+ 词）"},
+        {"gate": "hedging", "type": null, "detail_contains": "undoubt", "label": "绝对化断言：undoubtedly establishes"},
+        {"gate": "intext", "type": null, "detail_contains": "8", "label": "正文引用 [8] 与文表不对应"},
+        {"gate": null, "kind": "ai_signature", "min_score": 40, "label": "AI 痕迹画像：模板腔达中档以上"}
+      ]
+    },
+    {
+      "file": "papers/chinese_journal.md",
+      "genre": "empirical",
+      "label": "中文核心期刊实证论文（8 处埋雷）",
+      "expect": [
+        {"gate": "stats", "type": "p_zero", "label": "p=0.000（中文紧邻写法）"},
+        {"gate": "numbers", "type": "partition_sum_overflow", "label": "分桶矛盾：300 人 vs 180+200（两处）"},
+        {"gate": "figures", "type": "phantom_reference", "label": "如图5所示但无图5"},
+        {"gate": "intext", "type": "citation_missing_entry", "label": "引用 [7] 文献表不存在"},
+        {"gate": "hedging", "type": "absolute_term", "detail_contains": "无疑", "label": "绝对化：毫无疑问地证明"},
+        {"gate": "references_format", "type": "future_year", "label": "参考文献 2027 年"},
+        {"gate": "terms", "type": "undefined_acronym", "detail_contains": "KMO", "label": "KMO 未定义先用"},
+        {"gate": "style", "type": null, "detail_contains": "综上所述", "label": "凑字数短语"}
+      ]
+    },
+    {
+      "file": "papers/ai_slop.md",
+      "genre": "empirical",
+      "label": "AI 代写风学生稿（模板腔 + 假引用）",
+      "expect": [
+        {"gate": null, "kind": "ai_signature", "min_score": 60, "label": "AI 痕迹画像达'高'档（≥60）"},
+        {"gate": "style", "type": "ai_flavor", "label": "AI 高频词（delve/crucial/pivotal 等）"},
+        {"gate": "stats", "type": "p_zero", "label": "p=0.000"},
+        {"gate": "intext", "type": "no_intext_citations", "label": "两条文献正文从未引用（全文零引用标记）"},
+        {"gate": null, "kind": "citation", "doi": "10.5555/fabricated.study", "expect_grade": "C", "label": "编造 DOI 联网核验应为 C"}
+      ]
+    }
+  ]
+}

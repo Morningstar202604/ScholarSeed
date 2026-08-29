@@ -1,0 +1,349 @@
+[
+  {
+    "name": "Human Resource Management Review",
+    "type": [
+      "conceptual",
+      "review"
+    ],
+    "domains": [
+      "talent",
+      "recruitment",
+      "hrm",
+      "ai",
+      "algorithm",
+      "strategic",
+      "digital"
+    ],
+    "position": "SSCI Q1，概念/理论论文主阵地，重理论贡献、构念新颖度与命题可检验性",
+    "length": "概念论文通常 8000-10000 词（不含参考文献）",
+    "note": "适合提出新构念与配置框架的概念论文；强调与战略人才管理理论对话"
+  },
+  {
+    "name": "The International Journal of Human Resource Management (IJHRM)",
+    "type": [
+      "empirical",
+      "conceptual",
+      "review"
+    ],
+    "domains": [
+      "ai",
+      "algorithm",
+      "talent",
+      "hrm",
+      "recruitment",
+      "generative",
+      "robot"
+    ],
+    "position": "SSCI Q1，接受实证/概念/综述，AI 与 HRM 交叉主题活跃",
+    "length": "实证 8000-10000 词（不含参考文献）",
+    "note": "近年高频刊登 AI-enabled HRM、算法招聘综述与实证研究，概念论文亦可"
+  },
+  {
+    "name": "Human Resource Management Journal (HRMJ)",
+    "type": [
+      "empirical",
+      "conceptual"
+    ],
+    "domains": [
+      "ai",
+      "generative",
+      "hrm",
+      "talent",
+      "algorithm"
+    ],
+    "position": "SSCI Q1，实证为主，兼收概念与评论",
+    "length": "实证 8000-9000 词（不含参考文献）",
+    "note": "对生成式 AI 与 HRM 的政策与实践含义议题友好"
+  },
+  {
+    "name": "Human Resource Management (Wiley)",
+    "type": [
+      "empirical",
+      "conceptual"
+    ],
+    "domains": [
+      "talent",
+      "recruitment",
+      "hrm",
+      "ai",
+      "algorithm"
+    ],
+    "position": "SSCI Q1，兼顾研究与实践",
+    "length": "实证 7000-9000 词（不含参考文献）",
+    "note": "接受基于强理论的实证与概念论文，重视实践启示"
+  },
+  {
+    "name": "Personnel Psychology",
+    "type": [
+      "empirical"
+    ],
+    "domains": [
+      "selection",
+      "algorithm",
+      "recruitment",
+      "ai",
+      "justice"
+    ],
+    "position": "SSCI Q1，人事心理学实证顶刊，selection/算法公平主题契合度高",
+    "length": "实证 9000-12000 词（不含参考文献）",
+    "note": "重严苛实证与效应量；纯概念论文不适合，需补实证"
+  },
+  {
+    "name": "Journal of Applied Psychology",
+    "type": [
+      "empirical"
+    ],
+    "domains": [
+      "selection",
+      "recruitment",
+      "algorithm",
+      "ai",
+      "justice",
+      "applicant"
+    ],
+    "position": "SSCI Q1，应用心理学实证顶刊",
+    "length": "实证 9000-12000 词（不含参考文献）",
+    "note": "接受率高门槛，需多研究（multi-study）实证支撑"
+  },
+  {
+    "name": "Academy of Management Review",
+    "type": [
+      "conceptual"
+    ],
+    "domains": [
+      "talent",
+      "theory",
+      "algorithm",
+      "ai"
+    ],
+    "position": "管理理论顶刊，仅收纯理论论文",
+    "length": "8000-10000 词（不含参考文献）",
+    "note": "门槛极高，需原创理论贡献与学科级对话；配置框架若理论化充分可考虑"
+  },
+  {
+    "name": "Journal of Management",
+    "type": [
+      "review",
+      "empirical"
+    ],
+    "domains": [
+      "talent",
+      "recruitment",
+      "hrm",
+      "algorithm",
+      "ai"
+    ],
+    "position": "SSCI Q1，综述与实证并重",
+    "length": "综述 8000-12000 词（不含参考文献）",
+    "note": "适合把配置框架改写为系统综述或研究议程文章"
+  },
+  {
+    "name": "Business Research",
+    "type": [
+      "empirical",
+      "conceptual"
+    ],
+    "domains": [
+      "algorithm",
+      "ai",
+      "fairness",
+      "discrimination"
+    ],
+    "position": "开放获取管理期刊，算法公平/伦理主题活跃",
+    "length": "实证 7000-9000 词（不含参考文献）",
+    "note": "对算法招聘公平性主题有连续专题，审稿相对高效"
+  },
+  {
+    "name": "Information Systems Journal",
+    "type": [
+      "empirical",
+      "conceptual"
+    ],
+    "domains": [
+      "ai",
+      "algorithm",
+      "digital",
+      "generative"
+    ],
+    "position": "SSCI Q1，信息系统与组织交叉，AI 与候选人感知实证常客",
+    "length": "实证 9000-11000 词（不含参考文献）",
+    "note": "如论文突出技术-组织-候选人三边交互可优先考虑"
+  },
+  {
+    "name": "International Journal of Selection and Assessment (IJSA)",
+    "type": [
+      "empirical"
+    ],
+    "domains": [
+      "selection",
+      "recruitment",
+      "algorithm",
+      "ai",
+      "justice",
+      "applicant"
+    ],
+    "position": "selection/assessment 专门期刊，SSCI 收录",
+    "length": "实证 6000-9000 词（不含参考文献）",
+    "note": "算法招聘候选人感知实证研究主阵地，投稿周期相对友好"
+  },
+  {
+    "name": "Journal of Artificial Intelligence Research (JAIR)",
+    "type": [
+      "empirical",
+      "conceptual"
+    ],
+    "domains": [
+      "ai",
+      "machine",
+      "learning",
+      "algorithm",
+      "nlp",
+      "vision"
+    ],
+    "position": "AI 领域老牌开放获取期刊，覆盖机器学习/NLP/视觉等核心方向",
+    "length": "以期刊投稿指南为准",
+    "note": "适合算法贡献为主的 AI 研究；开放获取，审稿严谨"
+  },
+  {
+    "name": "IEEE Transactions on Software Engineering",
+    "type": [
+      "empirical"
+    ],
+    "domains": [
+      "software",
+      "engineering",
+      "code",
+      "developer",
+      "testing"
+    ],
+    "position": "软件工程顶刊，实证软件工程研究主阵地",
+    "length": "以期刊投稿指南为准",
+    "note": "需严格的实证方法（案例研究/受控实验/数据挖掘）"
+  },
+  {
+    "name": "MIS Quarterly",
+    "type": [
+      "empirical",
+      "conceptual"
+    ],
+    "domains": [
+      "information",
+      "systems",
+      "digital",
+      "ai",
+      "technology",
+      "adoption"
+    ],
+    "position": "信息系统领域顶级期刊（UTD24），重理论对话与严谨设计",
+    "length": "以期刊投稿指南为准",
+    "note": "门槛极高；技术采纳/人机交互/平台类选题契合"
+  },
+  {
+    "name": "Organization Science",
+    "type": [
+      "empirical",
+      "conceptual"
+    ],
+    "domains": [
+      "organization",
+      "management",
+      "theory",
+      "work",
+      "labor"
+    ],
+    "position": "管理学顶刊（UTD24），组织理论与组织行为重镇",
+    "length": "以期刊投稿指南为准",
+    "note": "适合组织层面的 AI 影响与工作变革议题"
+  },
+  {
+    "name": "Journal of Business Ethics",
+    "type": [
+      "empirical",
+      "conceptual",
+      "review"
+    ],
+    "domains": [
+      "ethics",
+      "fairness",
+      "discrimination",
+      "ai",
+      "governance",
+      "justice"
+    ],
+    "position": "商业伦理旗舰期刊，AI 伦理/算法公平主题活跃",
+    "length": "以期刊投稿指南为准",
+    "note": "伦理审查、负责任 AI、公平性议题优先考虑"
+  },
+  {
+    "name": "Government Information Quarterly",
+    "type": [
+      "empirical",
+      "review"
+    ],
+    "domains": [
+      "government",
+      "public",
+      "policy",
+      "ai",
+      "digital",
+      "governance"
+    ],
+    "position": "电子政务与公共部门信息化顶刊，公共部门 AI 议题主阵地",
+    "length": "以期刊投稿指南为准",
+    "note": "政府 AI 治理、公共服务自动化选题契合"
+  },
+  {
+    "name": "npj Digital Medicine",
+    "type": [
+      "empirical"
+    ],
+    "domains": [
+      "medical",
+      "medicine",
+      "health",
+      "clinical",
+      "ai",
+      "imaging",
+      "diagnosis"
+    ],
+    "position": "Nature 系数字医学开放获取期刊，医学 AI 实证研究",
+    "length": "以期刊投稿指南为准",
+    "note": "临床验证/影像诊断/医疗大模型选题契合；需数据与方法透明"
+  },
+  {
+    "name": "Journal of Medical Internet Research",
+    "type": [
+      "empirical",
+      "review"
+    ],
+    "domains": [
+      "health",
+      "medical",
+      "internet",
+      "digital",
+      "ai",
+      "clinical"
+    ],
+    "position": "互联网医疗与健康信息学开放获取期刊",
+    "length": "以期刊投稿指南为准",
+    "note": "数字健康干预、LLM 医疗应用评测选题契合"
+  },
+  {
+    "name": "Computers in Human Behavior",
+    "type": [
+      "empirical"
+    ],
+    "domains": [
+      "human",
+      "behavior",
+      "ai",
+      "interaction",
+      "chatbot",
+      "perception",
+      "trust"
+    ],
+    "position": "人与技术交互实证期刊，用户感知/AI 信任主题活跃",
+    "length": "以期刊投稿指南为准",
+    "note": "人对 AI 的感知、信任与行为反应类实证契合"
+  }
+]

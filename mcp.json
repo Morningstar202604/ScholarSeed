@@ -1,0 +1,11 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "paper-tools": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["./scripts/paper_tools.py"],
+      "cwd": "${PLUGIN_ROOT}"
+    }
+  }
+}

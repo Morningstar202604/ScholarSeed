@@ -1,0 +1,23 @@
+# ScholarSeed lint 配置：运行时零依赖（纯标准库），开发期用 ruff 做静态检查。
+line-length = 200
+
+[lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "ISC", # implicit string concatenation
+    "RUF", # ruff-specific
+]
+ignore = [
+    "E501",    # 模板/描述字符串普遍超长，行长不设硬约束
+    "RUF001",  # 中文学术写作工具：字符串中的全角标点是内容本身，非笔误
+    "RUF002",
+    "RUF003",
+]
+
+[lint.per-file-ignores]
+# MCP 工具对网络/API 异常做结构化返回而非崩溃，盲捕获是有意设计
+"scripts/paper_tools.py" = ["BLE001"]
+"scripts/release_gate.py" = ["PLW1510"]  # returncode 手动判断

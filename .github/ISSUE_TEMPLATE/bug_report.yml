@@ -1,0 +1,59 @@
+name: Bug report
+description: Report a false positive, a missed defect, or a crash in a ScholarSeed gate
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. Deterministic gates live and die by
+        reproducibility — please include the exact input text and the exact output.
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      options:
+        - MCP server (agent)
+        - CLI
+        - Skill workflow
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: gate
+    attributes:
+      label: Which gate/tool?
+      options:
+        - citation_verify / verify_references / format_citation (live)
+        - check_stats / check_numbers
+        - check_style / check_ai_signature / check_vague_attribution
+        - check_references_* (format / completeness / recency)
+        - check_links / check_placeholders / check_tamper_traces
+        - proofread / audit_paper / audit_project / gate_suite
+        - next_actions / audit_delta
+        - other / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: input
+    attributes:
+      label: Input text (minimal repro)
+      description: The smallest manuscript snippet that triggers the problem.
+      placeholder: |
+        ## 结果
+        数据分析表明p=0.000，效果极其显著。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs actual
+      description: What should the gate have reported, and what did it actually report?
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: 3.11.4
+    validations:
+      required: false
