@@ -1,0 +1,41 @@
+name: Feature request
+description: Propose a new gate, a lexicon addition, or an agent-workflow improvement
+labels: ["enhancement"]
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - New gate/checker
+        - Lexicon/phrase addition
+        - Agent workflow (next_actions / gate_suite / audit_delta)
+        - Docs or calibration
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: The writing problem it solves
+      description: |
+        Describe the real manuscript defect or reviewer complaint this would catch.
+        Deterministic gates need a concrete, re-occuring pattern — vague ideas are hard to gate.
+      placeholder: "审稿人经常指出…… / AI 代写稿常见……"
+    validations:
+      required: true
+  - type: textarea
+    id: example
+    attributes:
+      label: Example text that should be flagged
+      placeholder: "粘贴应被检出的最小文本样例"
+    validations:
+      required: true
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Design constraints acknowledgment
+      options:
+        - label: Deterministic (same input → same report, no model calls)
+        - label: Zero dependencies (pure Python stdlib)
+        - label: Hint not verdict (info/warning severity is acceptable)

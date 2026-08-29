@@ -1,0 +1,26 @@
+# Smithery configuration for ScholarSeed (https://smithery.ai)
+# Exposes the deterministic paper quality-gate MCP server (live citation verification,
+# statistical redlines, numeric-consistency and full-text proofreading gates);
+# the five-skill writing pipeline is bundled in the repository.
+
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      pythonCommand:
+        type: string
+        title: Python command
+        description: Interpreter used to launch the server (python on Windows, python3 elsewhere).
+        default: python3
+      semanticScholarApiKey:
+        type: string
+        title: Semantic Scholar API key (optional)
+        description: Raises Semantic Scholar rate limits. Leave empty for the free shared quota.
+        default: ""
+  commandFunction: |-
+    (config) => ({
+      command: config.pythonCommand || (process.platform === 'win32' ? 'python' : 'python3'),
+      args: ['scripts/paper_tools.py'],
+      env: config.semanticScholarApiKey ? { SEMANTIC_SCHOLAR_API_KEY: config.semanticScholarApiKey } : {}
+    })
