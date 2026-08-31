@@ -1,0 +1,6 @@
+.git
+.github
+tests
+benchmarks
+docs
+node_modules
