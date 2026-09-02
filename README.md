@@ -257,7 +257,7 @@ All external API calls are disk-cached (default TTL 24h, tunable via `SCHOLARSEE
 
 ## Corpus Benchmark
 
-Gate thresholds calibrated on **70 arXiv papers across 9 disciplines**: all 70 scored in the low band of the style lint (zero false alarms on the human corpus), median audit score 82 with healthy spread. Measured honestly: **this is a negative-sample benchmark only** — detection recall on AI-written positives is not yet measured (planned; see [docs/ROADMAP.md](docs/ROADMAP.md)). See [docs/CORPUS-BENCHMARK.md](docs/CORPUS-BENCHMARK.md).
+Gate thresholds calibrated on **70 arXiv papers across 9 disciplines**: all 70 scored in the low band of the style lint (zero false alarms on the human corpus), median audit score 82 with healthy spread. Measured honestly: **this is a negative-sample benchmark only** — detection recall on AI-written positives is not yet measured (planned; see ). See [docs/CORPUS-BENCHMARK.md](docs/CORPUS-BENCHMARK.md).
 
 ## Install
 
