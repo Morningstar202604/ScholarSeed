@@ -80,6 +80,16 @@ class TestTrilingualDescriptions(unittest.TestCase):
                 "check_placeholders",
                 "check_references_completeness",
                 "check_references_recency",
+                "check_encoding",
+                "check_ethics_statements",
+                "check_retraction",
+                "check_claim_citation_fit",
+                "check_version_mismatch",
+                "check_symbol_consistency",
+                "check_abstract_promises",
+                "check_rigor_declarations",
+                "check_anonymization",
+                "check_units",
         }
         self.assertEqual({t["name"] for t in paper_tools.TOOLS}, expected)
 

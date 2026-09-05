@@ -18,9 +18,23 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zlib
-from bisect import bisect_right
 from collections import Counter
 from pathlib import Path
+
+from paper_ir import (
+    _blank_fences,
+    _count_cjk,
+    _count_words_en,
+    _extract_abstract,
+    _find_pattern,
+    _find_reference_heading,
+    _line_starts,
+    _pos_to_line,
+    _split_body_references,
+    _split_sentences,
+    iter_sentences,
+    parse_paper_ir,
+)
 
 SERVER_NAME = "paper-tools"
 
@@ -1477,58 +1491,9 @@ OVERCLAIM_WORDS_EN = ["prove that", "guarantee", "perfectly", "completely solves
 BUZZWORDS_ZH = ["赋能", "抓手", "底层逻辑", "颗粒度"]  # 互联网黑话，学术语境应为具体表述
 
 
-def _line_starts(text: str) -> list:
-    return [0] + [m.end() for m in re.finditer(r"\n", text)]
-
-
-def _pos_to_line(pos: int, starts: list) -> int:
-    return bisect_right(starts, pos)
-
-
-def _find_pattern(text: str, pattern: str, flags: int = 0) -> list:
-    """返回 [(行号, 命中片段)]，供各检查器复用。"""
-    starts = _line_starts(text)
-    out = []
-    for m in re.finditer(pattern, text, flags):
-        line = _pos_to_line(m.start(), starts)
-        snippet = m.group(0).strip()
-        out.append((line, snippet))
-    return out
-
-
-def _blank_fences(text: str) -> str:
-    """将 ``` 围栏代码块内容置空但保留换行数量，使行号映射不漂移。"""
-
-    def _repl(m):
-        return "\n" * m.group(0).count("\n")
-
-    return re.sub(r"```.*?```", _repl, text, flags=re.S)
-
-
-def _count_cjk(text: str) -> int:
-    """统计中文字符数（统一 CJK 区间，避免各处重写 [一-鿿] 字面量）。"""
-    return len(re.findall(r"[\u4e00-\u9fff]", text))
-
-
-def _count_words_en(text: str) -> int:
-    """统计拉丁词数（统一正则，避免各处重写 [A-Za-z]+ 字面量）。"""
-    return len(re.findall(r"[A-Za-z]+", text))
-
-
-def _find_reference_heading(markdown: str) -> "re.Match | None":
-    """定位参考文献小节标题（H1-H3，支持中英文），集中复用避免三处重复正则。"""
-    return re.search(r"^#{1,3}\s*(?:References|参考文献)\s*$", markdown, flags=re.M)
-
-
-def _split_sentences(text: str, keep_punct: bool = False) -> list:
-    """按中英文句末标点切分正文；keep_punct=True 保留句末标点（check_style 需展示片段）。"""
-    if keep_punct:
-        parts = re.split(r"(?<=[。！？.!?])\s*", text)
-    else:
-        parts = re.split(r"[。！？.!?]\s*", text)
-    return [p for p in parts if p.strip()]
-
-
+# _line_starts/_pos_to_line/_find_pattern/_blank_fences/_count_cjk/_count_words_en/
+# _find_reference_heading/_split_sentences/_split_body_references/_extract_abstract
+# 已集中迁入 paper_ir.py（docs/ARCHITECTURE.md：一次解析、全塔共享），此处导入复用。
 def check_style(markdown: str) -> dict:
     """文风检查：AI 高频词、口语化、凑字数短语、过度声明词、超长段落与句子。
 
@@ -1765,14 +1730,6 @@ def check_references_format(markdown: str, current_year: int | None = None) -> d
     return {"ok": not issues, "issues": issues, "entries": len(entries), "styles": {k: len(v) for k, v in styles.items()}}
 
 
-def _split_body_references(markdown: str) -> tuple:
-    """按参考文献标题切分为（正文, 文献段）。无文献标题时文献段为空。"""
-    m = _find_reference_heading(markdown)
-    if not m:
-        return markdown, ""
-    return markdown[: m.start()], markdown[m.end() :]
-
-
 def _expand_num_citation(token: str) -> set:
     """展开数字引用标记：'2'->{2}；'2,5'->{2,5}；'2-5'->{2,3,4,5}。"""
     nums = set()
@@ -1949,22 +1906,6 @@ ABSTRACT_ELEMENTS = [
     ("结果", r"结果|表明|显示|发现|results?|findings?|(?:shows?|indicates?|demonstrates?|reveals?) that"),
     ("结论", r"结论|意义|启示|贡献|implicat|contribut|conclusion|suggest(?:s|ing)?|impl(?:y|ies)"),
 ]
-
-
-def _extract_abstract(markdown: str) -> str:
-    """定位摘要段：优先标题级（## 摘要），其次加粗/标签行（**摘要**：…），取到下一个标题为止。"""
-    hm = re.search(r"^#{1,3}\s*(?:摘要|abstract)\s*$", markdown, flags=re.M | re.I)
-    if hm:
-        rest = markdown[hm.end() :]
-        stop = re.search(r"^#{1,3}\s*", rest, flags=re.M)
-        return (rest[: stop.start()] if stop else rest).strip()
-    lm = re.search(r"^(?:\*\*)?\s*(?:摘要|abstract)(?:\*\*)?\s*[:：]\s*(.*)$", markdown, flags=re.M | re.I)
-    if lm:
-        para_start = lm.end() - len(lm.group(1))
-        rest = markdown[para_start:]
-        stop = re.search(r"^#{1,3}\s*|\n\s*\n", rest.lstrip("\n"))
-        return (rest[: stop.start()] if stop else rest).strip()
-    return ""
 
 
 def check_abstract(markdown: str, genre: str = "empirical") -> dict:
@@ -2915,6 +2856,706 @@ def check_links(markdown: str, live: bool = False) -> dict:
     return {"ok": not issues, "issues": issues, "checked": len(urls), "note": note}
 
 
+# 编码健康（门禁塔 L0 文件底座）：底座损坏时上层所有行号证据不可信。
+# 高置信 mojibake 特征：UTF-8 字节流被按 Latin-1 误读的双字节序列
+#（如 中→"ä¸­"、智能引号→"â€™"）；合法法文/德文重音字母后跟 ASCII 不命中。
+_MOJIBAKE_RE = re.compile(
+    r"Ã[©¨®°¼½¾±¸¹º»]"
+    r"|â€[™œšž]"
+    r"|[\u00e4\u00e5\u00e6\u00e7\u00e8\u00e9\u00ea\u00eb\u00ec\u00ed\u00ee\u00ef\u00f1\u00f2\u00f3\u00f4\u00f5\u00f6\u00f8\u00f9\u00fa\u00fb\u00fc\u00fd][\u0080-\u00bf\u00c0-\u00ff]",
+    re.UNICODE,
+)
+_CID_MARKER_RE = re.compile(r"\(cid:\d+\)")
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def check_encoding(markdown: str) -> dict:
+    """编码健康检查：U+FFFD 替换符、(cid:NN) PDF 提取残留、mojibake 乱码、控制字符、文中部 BOM。
+
+    底座层检查：替换符/CID 意味着文本在该处**不可读**（error 级），乱码/控制字符是
+    高置信损坏特征（warning 级）。只报告客观字符事实，不猜测成因归属。
+    """
+    if not markdown or not markdown.strip():
+        return {"ok": True, "issues": []}
+    starts = _line_starts(markdown)
+    issues = []
+
+    def _add(itype: str, severity: str, pos: int, detail: str) -> None:
+        issues.append({"type": itype, "severity": severity, "line": _pos_to_line(pos, starts), "detail": detail})
+
+    counts = {"replacement_char": 0, "cid_extracted": 0, "mojibake": 0, "control_char": 0, "bom_midfile": 0}
+    for m in re.finditer("\ufffd", markdown):
+        counts["replacement_char"] += 1
+        if counts["replacement_char"] <= 3:
+            _add("replacement_char", "error", m.start(), f"U+FFFD 替换符（该处字符已不可读，源文件编码损坏或转换丢字）×{counts['replacement_char']}")
+    for m in _CID_MARKER_RE.finditer(markdown):
+        counts["cid_extracted"] += 1
+        if counts["cid_extracted"] <= 3:
+            _add("cid_extracted", "error", m.start(), f"(cid:{m.group(0)[5:-1]}) PDF 提取残留——该处为字形编号而非真实文字（中文 CID 编码 PDF 常见），文本不可审计")
+    for m in _MOJIBAKE_RE.finditer(markdown):
+        counts["mojibake"] += 1
+        if counts["mojibake"] <= 5:
+            _add("mojibake", "warning", m.start(), f"疑似编码乱码 '{m.group(0)}'——UTF-8 被按 Latin-1 误读的特征序列，请核对源文件编码")
+    for m in _CONTROL_CHAR_RE.finditer(markdown):
+        counts["control_char"] += 1
+        if counts["control_char"] <= 3:
+            _add("control_char", "warning", m.start(), f"异常控制字符 U+{ord(m.group(0)):04X}——不可见但会破坏解析与排版")
+    for m in re.finditer("\ufeff", markdown):
+        if m.start() > 0:
+            counts["bom_midfile"] += 1
+            if counts["bom_midfile"] <= 2:
+                _add("bom_midfile", "info", m.start(), "文中部 BOM（U+FEFF）——拼接文件常见残留，建议清除")
+
+    total = sum(counts.values())
+    if total > len(issues):
+        issues.append({"type": "encoding_suppressed", "severity": "info", "detail": f"编码问题共 {total} 处，已按类型限量展示；计数见 summary"})
+    return {"ok": not issues, "issues": issues[:10], "summary": counts, "note": "替换符/CID 为 error（文本不可读），乱码/控制字符为 warning；只报告字符事实，不猜测成因"}
+
+
+# P 合法前提层：投稿资格声明存在性。工具只查"写了没有"，声明真伪归作者与机构。
+_ETHICS_STATEMENTS = [
+    ("ethics_approval", "伦理审批/知情同意", r"伦理(?:审查|批准|委员会)|知情同意|informed consent|ethics (?:approval|committee|review)|IRB|institutional review board"),
+    ("conflict_of_interest", "利益冲突披露", r"利益冲突|conflicts? of interest|competing (?:interests|financial)|declarations? of interest"),
+    ("ai_disclosure", "AI 使用披露（AIGC 合规）", r"(?:人工智能|AI|AIGC|生成式(?:人工智能)?|ChatGPT|GPT|大语言模型|大模型)[^。；;\n]{0,24}(?:披露|声明|辅助写作|辅助完成|使用情况|未使用|不涉及)|(?:未使用|不涉及|未借助)[^。；;\n]{0,16}(?:人工智能|AI|AIGC|生成式|ChatGPT|大语言模型|大模型)|(?:AI[- ]assisted|generative AI|large language model|\bLLM\b)[^.\n]{0,30}(?:disclos|declar|assist|use)|\bno\s+AI\b"),
+    ("data_availability", "数据可用性声明", r"数据可用性|数据获得|数据获取|data availability|availability of (?:the )?data|data sharing"),
+]
+_HUMAN_SUBJECTS_RE = re.compile(r"患者|病人|受试者|被试|参与者|受访者|访谈对象|participants|patients|subjects|interviewees|respondents", re.I)
+
+
+def check_ethics_statements(markdown: str, genre: str = "empirical") -> dict:
+    """合法前提检查：伦理审批/知情同意、利益冲突、AI 使用披露、数据可用性声明是否在场。
+
+    缺伦理声明且正文提及人类受试者 = 桌拒级红线（error）；其余缺失为 warning。
+    本检查只验证声明存在性与非空，不判断声明真伪——真实性由作者与机构负责。
+    """
+    if not markdown or not markdown.strip():
+        return {"ok": True, "issues": []}
+    body, _refs = _split_body_references(markdown)
+    body = _blank_fences(body)
+    starts = _line_starts(body)
+    found = {}
+    for key, label, pat in _ETHICS_STATEMENTS:
+        m = re.search(pat, body, flags=re.I)
+        if m:
+            found[key] = _pos_to_line(m.start(), starts)
+    issues = []
+    human_subjects = bool(_HUMAN_SUBJECTS_RE.search(body))
+    is_empirical = (genre or "empirical").lower() in ("empirical", "thesis")
+    if "ethics_approval" not in found:
+        if human_subjects:
+            issues.append({"type": "ethics_missing_human_subjects", "severity": "error", "detail": "正文提及人类受试者（患者/参与者/被试等）但未见伦理审批或知情同意声明——期刊合规桌拒级红线"})
+        elif is_empirical:
+            issues.append({"type": "ethics_missing", "severity": "warning", "detail": "实证论文未见伦理声明（如确不涉人类/动物实验，请在方法中显式说明豁免依据）"})
+    if "conflict_of_interest" not in found:
+        issues.append({"type": "coi_missing", "severity": "warning", "detail": "未见利益冲突披露声明（conflict of interest / 利益冲突）——多数期刊为必备声明"})
+    if "ai_disclosure" not in found:
+        issues.append({"type": "ai_disclosure_missing", "severity": "warning", "detail": "未见 AI 使用披露（AIGC 合规：使用/未使用均需显式声明）——国内学位与期刊规范趋严"})
+    if "data_availability" not in found and is_empirical:
+        issues.append({"type": "data_availability_missing", "severity": "warning", "detail": "实证论文未见数据可用性声明（data availability statement）——可复现性基本要求"})
+    summary = {"found": {k: v for k, v in found.items()}, "missing": [k for k, _, _ in _ETHICS_STATEMENTS if k not in found], "humanSubjectsDetected": human_subjects, "genre": genre}
+    return {"ok": not issues, "issues": issues, "summary": summary, "note": "声明存在性检查：工具查'写了没有'，真伪归人；涉人研究缺伦理声明为 error"}
+
+
+# L1 存在层：撤稿筛查。撤稿是 Crossref/S2 记录的客观事实，但基础设施失败
+# 沿用 X 级纪律——无法核验永不触发门禁，只有"确认被撤稿"才是 error。
+_RETRACT_NOTICE_TITLE_RE = re.compile(r"retrac|withdrawn|撤稿", re.I)
+
+
+def _retraction_probe(doi: str = "", title: str = "") -> dict:
+    """查询单条文献的撤稿状态。
+
+    信号源（命中任一即判定）：Crossref 的 update-to（type 含 retraction）、
+    relation.is-retracted-by、标题本身为撤稿声明（Retraction Notice）。
+    返回 {status: ok|retracted|notice|unverifiable|unmatched, ...}。
+    """
+    raw = None
+    if doi.strip():
+        url = f"{CROSSREF_API}/{urllib.parse.quote(doi.strip(), safe='')}"
+        try:
+            raw = _fetch_json(url, headers=_crossref_headers()).get("message", {})
+        except urllib.error.HTTPError as e:
+            if e.code in RETRYABLE_HTTP_CODES:
+                return {"status": "unverifiable", "note": f"Crossref 暂不可达 (HTTP {e.code})"}
+            return {"status": "unverifiable", "note": f"HTTP {e.code}: {e.reason}"}
+        except Exception as e:
+            return {"status": "unverifiable", "note": f"网络不可达：{e}"}
+    else:
+        matched = _crossref_by_title(title)
+        resolved_doi = str(matched.get("doi", "") or "")
+        if not matched.get("verified") or not resolved_doi:
+            return {"status": "unmatched", "note": str(matched.get("note", "未命中，跳过撤稿核查"))}
+        url = f"{CROSSREF_API}/{urllib.parse.quote(resolved_doi, safe='')}"
+        try:
+            raw = _fetch_json(url, headers=_crossref_headers()).get("message", {})
+        except Exception as e:
+            return {"status": "unverifiable", "note": f"网络不可达：{e}"}
+        doi = resolved_doi
+    title0 = ((raw.get("title") or [""]) or [""])[0]
+    relation = raw.get("relation") or {}
+    update_to = raw.get("update-to") or []
+    retract_updates = [u for u in update_to if "retract" in str(u.get("type", "")).lower()]
+    evidence = []
+    if relation.get("is-retracted-by"):
+        evidence.append(f"relation.is-retracted-by → {relation['is-retracted-by']}")
+    if retract_updates:
+        evidence.append(f"update-to(type=retraction) → {[u.get('DOI') for u in retract_updates]}")
+    if evidence:
+        return {"status": "retracted", "doi": doi, "title": title0, "evidence": evidence}
+    if _RETRACT_NOTICE_TITLE_RE.search(title0):
+        return {"status": "notice", "doi": doi, "title": title0, "note": "该条目本身是撤稿声明（Retraction Notice）——综述引用属正常，实证引用请人工确认意图"}
+    return {"status": "ok", "doi": doi, "title": title0}
+
+
+def check_retraction(markdown: str, max_entries: int = 30) -> dict:
+    """撤稿筛查（L1 存在层，联网）：逐条检查被引文献是否已被撤稿。
+
+    引用已撤稿文献是学术诚信硬伤——稿件引用的结论若来自被撤成果，审稿人
+    与编辑有权直接质疑。判定依据 Crossref 记录（update-to / relation /
+    撤稿声明标题），属外部 API 事实而非启发式。基础设施失败按 X 级纪律
+    记为 unverifiable（info），永不触发门禁。
+    """
+    if not markdown or not markdown.strip():
+        return {"ok": True, "issues": []}
+    entries = _extract_reference_entries(markdown)
+    if not entries:
+        return {"ok": True, "issues": [], "summary": {"note": "未识别到含年份的文献条目"}, "checked": 0}
+    truncated = len(entries) > max_entries
+    issues = []
+    stats = {"checked": 0, "retracted": 0, "notice": 0, "unverifiable": 0, "unmatched": 0}
+    for idx, entry in enumerate(entries[:max_entries], 1):
+        doi_m = DOI_PATTERN.search(entry)
+        title_hint = _entry_title(entry)
+        if not doi_m and not _title_hint_long_enough(title_hint):
+            stats["unmatched"] += 1
+            continue
+        try:
+            probe = _retraction_probe(doi=_clean_doi(doi_m.group(0)) if doi_m else "", title=title_hint)
+        except Exception as e:
+            probe = {"status": "unverifiable", "note": f"查询异常：{e}"}
+        status = probe.get("status", "unverifiable")
+        loc = f"第 {idx} 条"
+        entry_short = entry[:44].replace("\n", " ")
+        if status == "retracted":
+            stats["retracted"] += 1
+            issues.append({"type": "cited_retracted_work", "severity": "error", "line": idx, "detail": f"{loc}「{entry_short}…」已被撤稿（{'；'.join(probe.get('evidence', []))}）——引用撤稿成果是学术诚信硬伤，必须替换或删除"})
+        elif status == "notice":
+            stats["notice"] += 1
+            issues.append({"type": "cited_retraction_notice", "severity": "info", "line": idx, "detail": f"{loc}「{entry_short}…」本身是撤稿声明，请确认引用意图"})
+            stats["checked"] += 1
+            continue
+        elif status == "unverifiable":
+            stats["unverifiable"] += 1
+            issues.append({"type": "retraction_unverifiable", "severity": "info", "line": idx, "detail": f"{loc}撤稿状态无法核验（{probe.get('note', '')}）——不计入门禁失败"})
+            stats["checked"] += 1
+            continue
+        elif status == "unmatched":
+            stats["unmatched"] += 1
+            continue
+        stats["checked"] += 1
+    note = f"已核 {stats['checked']}/{len(entries)} 条" + (f"（超过上限仅查前 {max_entries} 条）" if truncated else "")
+    return {"ok": not any(i["severity"] == "error" for i in issues), "issues": issues, "summary": stats, "note": note + "；X 级纪律：无法核验永不触发门禁"}
+
+
+# L2 契合层：引证契合。工具只做词汇级契合提示（stdlib 射程），
+# "源文是否真支持该主张"的语义级判断需要模型推理，属明确不做（见 ARCHITECTURE.md）。
+_FIT_STOPWORDS = {
+    "the", "and", "for", "that", "this", "with", "from", "are", "was", "were", "which", "their",
+    "have", "has", "had", "not", "but", "can", "may", "our", "its", "also", "than", "into", "such",
+    "these", "those", "between", "among", "based", "using", "results", "result", "study", "paper",
+    "we", "propose", "present", "show", "shown", "suggest", "suggests", "found",
+}
+_STRONG_CLAIM_RE = re.compile(
+    r"significantly|substantially|proves? that|demonstrates? that|confirms? that|validates? that|establishes? that"
+    r"|显著(?:地)?(?:表?明|证明|优于|提升|降低|高于|低于)|证明了|证实了|验证了|确立了|显著(?:改善|提高|增强)",
+    re.I,
+)
+_AUTHORYEAR_CITE_RE = re.compile(
+    r"\(\s*([A-Za-z\u4e00-\u9fff][^(),;]{0,30}?)\s*,\s*((?:19|20)\d{2})[a-z]?\s*\)|（\s*([^（）,；]{1,30}?)\s*，?\s*((?:19|20)\d{2})[a-z]?）"
+)
+
+
+def _fit_terms(text: str) -> set:
+    """契合度词元：拉丁实词(≥3 字母，去停用词) + 中文二元组。"""
+    low = text.lower()
+    terms = {w for w in re.findall(r"[a-z]{3,}", low) if w not in _FIT_STOPWORDS}
+    terms.update(re.findall(r"[\u4e00-\u9fff]{2}", low))
+    return terms
+
+
+def _citation_source_probe(doi: str, title: str) -> dict:
+    """获取所引文献的标题与摘要（供契合度比对）；失败诚实降级。
+
+    返回 {status: matched|unmatched|unverifiable, title, abstract}。
+    """
+    raw = None
+    if doi.strip():
+        url = f"{CROSSREF_API}/{urllib.parse.quote(doi.strip(), safe='')}"
+        try:
+            raw = _fetch_json(url, headers=_crossref_headers()).get("message", {})
+        except Exception as e:
+            return {"status": "unverifiable", "note": str(e), "title": "", "abstract": ""}
+        src_title = ((raw.get("title") or [""]) or [""])[0]
+        abstract = re.sub(r"<[^>]+>", " ", raw.get("abstract", "") or "")
+        return {"status": "matched", "title": src_title, "abstract": abstract}
+    if not _title_hint_long_enough(title):
+        return {"status": "unmatched", "note": "标题线索不足", "title": "", "abstract": ""}
+    try:
+        matched = _crossref_by_title(title)
+    except Exception as e:
+        return {"status": "unverifiable", "note": str(e), "title": "", "abstract": ""}
+    if not matched.get("verified"):
+        return {"status": "unmatched", "note": str(matched.get("note", "未命中")), "title": "", "abstract": ""}
+    resolved = str(matched.get("doi", "") or "")
+    abstract = ""
+    if resolved:
+        try:
+            raw = _fetch_json(f"{CROSSREF_API}/{urllib.parse.quote(resolved, safe='')}", headers=_crossref_headers()).get("message", {})
+            abstract = re.sub(r"<[^>]+>", " ", raw.get("abstract", "") or "")
+        except Exception:
+            abstract = ""
+    return {"status": "matched", "title": str(matched.get("title", "")), "abstract": abstract}
+
+
+def check_claim_citation_fit(markdown: str, max_assessed: int = 15) -> dict:
+    """引证契合检查（L2 契合层，联网+缓存）：强主张句与所引文献标题/摘要的词汇契合度。
+
+    只检查"带强主张措辞 + 引注"的句子：主张句词元与所引文献标题/摘要词元的
+    重叠率过低时提示人工复核——词汇契合度低 ≠ 引文错误，但 polished-but-unsupported
+    的主张是审稿人"source?"质疑的高发点。无法获取所引文献元数据时诚实降级，
+    不参与评估也不计入门禁失败。severity=warning（准门禁，需人工复核）。
+    """
+    if not markdown or not markdown.strip():
+        return {"ok": True, "issues": []}
+    body, _refs = _split_body_references(markdown)
+    entries = _extract_reference_entries(markdown)
+    if not entries:
+        return {"ok": True, "issues": [], "summary": {"note": "未识别到文献条目，无法建立引用映射"}}
+    issues = []
+    stats = {"strongClaimCitations": 0, "assessed": 0, "weak": 0, "unassessed": 0}
+    starts = _line_starts(body)
+    for pos, sent in iter_sentences(body):
+        if stats["assessed"] >= max_assessed:
+            break
+        num_m = re.search(r"\[(\d{1,3})\]", sent)
+        entry = None
+        if num_m and 1 <= int(num_m.group(1)) <= len(entries):
+            entry = entries[int(num_m.group(1)) - 1]
+        else:
+            ay = _AUTHORYEAR_CITE_RE.search(sent)
+            if ay:
+                author = (ay.group(1) or ay.group(3) or "").strip().split()[0]
+                year = ay.group(2) or ay.group(4)
+                for e in entries:
+                    if author in e and year in e:
+                        entry = e
+                        break
+        if entry is None or not _STRONG_CLAIM_RE.search(sent):
+            continue
+        stats["strongClaimCitations"] += 1
+        doi_m = DOI_PATTERN.search(entry)
+        title_hint = _entry_title(entry)
+        if not doi_m and not _title_hint_long_enough(title_hint):
+            stats["unassessed"] += 1
+            continue
+        probe = _citation_source_probe(doi=_clean_doi(doi_m.group(0)) if doi_m else "", title=title_hint)
+        if probe["status"] != "matched":
+            stats["unassessed"] += 1
+            continue
+        stats["assessed"] += 1
+        claim_terms = _fit_terms(sent)
+        src_terms = _fit_terms(probe["title"] + " " + probe["abstract"])
+        if len(claim_terms) < 4 or len(src_terms) < 4:
+            continue
+        overlap = claim_terms & src_terms
+        ratio = len(overlap) / min(len(claim_terms), len(src_terms))
+        if ratio < 0.10:
+            stats["weak"] += 1
+            line = _pos_to_line(pos, starts)
+            shared = "、".join(sorted(overlap)[:5]) if overlap else "无"
+            issues.append({
+                "type": "weak_citation_support",
+                "severity": "warning",
+                "line": line,
+                "detail": f"强主张句与所引文献《{probe['title'][:36]}…》词汇契合度仅 {ratio:.0%}（共同词元：{shared}）——请人工确认引文是否支撑该主张",
+            })
+    if stats["unassessed"]:
+        issues.append({"type": "fit_unassessed", "severity": "info", "detail": f"{stats['unassessed']} 处引用无法获取所引文献元数据（网络/未命中），未参与契合评估——不计入门禁失败"})
+    note = f"强主张引用句 {stats['strongClaimCitations']} 处，已评估 {stats['assessed']} 处（上限 {max_assessed}）"
+    return {"ok": not issues, "issues": issues, "summary": stats, "note": note + "；契合度低≠引文错误，warning 级提示人工复核"}
+
+
+# L2 契合层：预印本-正式版错配。引用 arXiv 版而正式发表版已存在，
+# 是审稿人常见 nitpick（引用元数据过时），确定性可查。
+_ARXIV_ID_RE = re.compile(r"arxiv[:\s]*(\d{4}\.\d{4,5})(?:v\d+)?|arxiv\s*preprint", re.I)
+
+
+def check_version_mismatch(markdown: str, max_entries: int = 30) -> dict:
+    """预印本-正式版错配检查（L2 契合层，联网）：引用 arXiv 预印本但正式发表版已存在。
+
+    文献表条目含 arXiv 标识时，按标题在 Crossref 检索正式版本（相似度阈值防误配，
+    复用 citation_verify 同一检索管线）；命中且非预印本自身（10.48550 DOI / report
+    类型）即提示更新。仅存在预印本的文献不受影响。severity=warning。
+    """
+    if not markdown or not markdown.strip():
+        return {"ok": True, "issues": []}
+    entries = _extract_reference_entries(markdown)
+    if not entries:
+        return {"ok": True, "issues": [], "summary": {"note": "未识别到文献条目"}}
+    issues = []
+    stats = {"arxivEntries": 0, "publishedFound": 0, "unassessed": 0}
+    for idx, entry in enumerate(entries[:max_entries], 1):
+        if not _ARXIV_ID_RE.search(entry):
+            continue
+        stats["arxivEntries"] += 1
+        title_hint = _entry_title(entry)
+        if not _title_hint_long_enough(title_hint):
+            stats["unassessed"] += 1
+            continue
+        try:
+            matched = _crossref_by_title(title_hint)
+        except Exception:
+            stats["unassessed"] += 1
+            continue
+        if not matched.get("verified"):
+            stats["unassessed"] += 1
+            continue
+        doi = str(matched.get("doi", "") or "")
+        mtype = str(matched.get("type", "") or "")
+        if doi.startswith("10.48550/") or "report" in mtype.lower() or "arxiv" in doi.lower():
+            continue  # 命中的是预印本自身记录，不算错配
+        stats["publishedFound"] += 1
+        entry_short = entry[:44].replace("\n", " ")
+        issues.append({
+            "type": "preprint_published_mismatch",
+            "severity": "warning",
+            "line": idx,
+            "detail": f"第 {idx} 条「{entry_short}…」引用 arXiv 预印本，但已存在正式发表版《{str(matched.get('title', ''))[:40]}》(DOI: {doi or '未知'})——建议更新引用（部分文献可能仅有预印本，请核实）",
+        })
+    if stats["unassessed"]:
+        issues.append({"type": "version_unassessed", "severity": "info", "detail": f"{stats['unassessed']} 条 arXiv 条目无法核验正式版（网络/标题线索不足），不计入门禁失败"})
+    return {"ok": not issues, "issues": issues, "summary": stats, "note": "warning 级：预印本引用并非错误，但正式版已存在时应更新引用元数据"}
+
+
+# L3 一致层：一符一义。equations-symbols.md 知识（符号纪律）的代码化。
+# 同一符号被定义为两个不同含义 = error（读者必然误读）；同一含义被多个
+# 符号表示 = warning（约定漂移）。希腊字符与 LaTeX 命名归一化后比对。
+_GREEK_NAME_MAP = {
+    "α": "alpha", "β": "beta", "γ": "gamma", "δ": "delta", "ε": "epsilon", "ζ": "zeta", "η": "eta",
+    "θ": "theta", "ι": "iota", "κ": "kappa", "λ": "lambda", "μ": "mu", "ν": "nu", "ξ": "xi",
+    "π": "pi", "ρ": "rho", "σ": "sigma", "τ": "tau", "υ": "upsilon", "φ": "phi", "χ": "chi",
+    "ψ": "psi", "ω": "omega",
+}
+_SYM_ATOM = (
+    r"(?:\\(?:alpha|beta|gamma|delta|epsilon|varepsilon|zeta|eta|theta|iota|kappa|lambda|mu|nu|xi|pi|rho|sigma|tau|upsilon|phi|varphi|chi|psi|omega|Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Upsilon|Phi|Psi|Omega)\b"
+    r"|[A-Za-zαβγδεζηθικλμνξπρστυφχψωΓΔΘΛΞΠΣΥΦΨΩ])(?:_\{?[A-Za-z0-9]+\}?)?"
+)
+_SYMBOL_DEF_PATTERNS = [
+    re.compile(rf"({ _SYM_ATOM })\s*(?:表示|记作|记为|定义为|是指|指的是|代表)\s*([^。，,；;、\n]{{2,20}})"),
+    re.compile(rf"(?:设|令|记|其中|这里)\s*({ _SYM_ATOM })\s*为\s*([^。，,；;、\n]{{2,20}})"),
+    re.compile(rf"\b(?:where|let)\s+({ _SYM_ATOM })\s+(?:be|=|is)\s+(?:the\s+)?([^.,;:\n]{{3,30}})", re.I),
+    re.compile(rf"\b({ _SYM_ATOM })\s+denotes?\s+(?:the\s+)?([^.,;:\n]{{3,30}})", re.I),
+    re.compile(rf"\b({ _SYM_ATOM })\s+(?:stands for|is defined as|represents)\s+(?:the\s+)?([^.,;:\n]{{3,30}})", re.I),
+]
+
+
+def _normalize_symbol(raw: str) -> str:
+    s = raw.strip().strip("$").replace("\\", "").replace("{", "").replace("}", "").replace("_", "").strip().lower()
+    return _GREEK_NAME_MAP.get(s, s)
+
+
+def _normalize_term(raw: str) -> str:
+    return re.sub(r"[\s_\-]+", "", raw).strip().strip("的").lower()
+
+
+def check_symbol_consistency(markdown: str) -> dict:
+    """符号一致性检查（L3 一致层）：一符一义红线与术语-符号漂移。
+
+    从定义句（"λ 表示学习率"/"where λ denotes the learning rate"/"设 λ 为…"）
+    建立 符号→含义 映射：同一符号映射到相似度低于阈值的两个含义即 error
+    （读者必然误读）；同一含义被多个符号表示为 warning。围栏与显示公式
+    ($$…$$) 不参与。只核对定义句可机械解析的情形——未定义先用等语义问题
+    归 check_terms / 人工复核。
+    """
+    if not markdown or not markdown.strip():
+        return {"ok": True, "issues": []}
+    body, _refs = _split_body_references(markdown)
+    body = _blank_fences(body)
+    body = re.sub(r"\$\$.*?\$\$", lambda m: "\n" * m.group(0).count("\n"), body, flags=re.S)
+    starts = _line_starts(body)
+    defs = {}
+    for pos, sent in iter_sentences(body, blank_fences=False):
+        line = _pos_to_line(pos, starts)
+        for pat in _SYMBOL_DEF_PATTERNS:
+            for m in pat.finditer(sent):
+                sym_raw, term_raw = m.group(1), m.group(2)
+                sym_norm = _normalize_symbol(sym_raw)
+                term_norm = _normalize_term(term_raw)
+                if not sym_norm or len(term_norm) < 2 or term_norm[0].isdigit():
+                    continue
+                defs.setdefault(sym_norm, []).append((_normalize_term(term_raw), term_raw.strip(), line))
+    issues = []
+    for sym_norm, lst in sorted(defs.items()):
+        base_norm, base_raw, base_line = lst[0]
+        for t_norm, t_raw, line in lst[1:]:
+            if t_norm != base_norm and _title_similarity(base_norm, t_norm) < 0.4:
+                issues.append({"type": "symbol_conflict", "severity": "error", "line": line, "detail": f"一符一义冲突：符号 '{sym_norm}' 在 L{base_line} 定义为「{base_raw}」，又在 L{line} 定义为「{t_raw}」——同一符号两种含义，读者必然误读"})
+                break
+    by_term = {}
+    for sym_norm, lst in defs.items():
+        by_term.setdefault(lst[0][0], []).append((sym_norm, lst[0][1], lst[0][2]))
+    drift_count = 0
+    for term_norm, syms in sorted(by_term.items()):
+        if len(syms) > 1 and drift_count < 5:
+            drift_count += 1
+            sym_list = "、".join(s[0] for s in syms)
+            issues.append({"type": "term_symbol_drift", "severity": "warning", "line": syms[0][2], "detail": f"术语-符号漂移：「{syms[0][1]}」同时由符号 {sym_list} 表示——同一含义建议固定一个符号"})
+    summary = {"symbolsDefined": len(defs), "conflicts": sum(1 for i in issues if i["type"] == "symbol_conflict"), "drifts": drift_count}
+    return {"ok": not issues, "issues": issues[:10], "summary": summary, "note": "一符一义冲突=error；符号只核对定义句中的显式映射，未定义先用等归术语检查/人工复核"}
+
+
+# L3 一致层：摘要承诺↔正文兑现。摘要提出的方法/框架在正文中必须再出现——
+# "摘要画大饼、正文没有"是审稿意见 discrepancy between abstract and body 的直接来源。
+_PROMISE_RE = re.compile(
+    r"(?:we|this (?:paper|study|work)|the present (?:paper|study))\s+(?:propose[sd]?|present[sd]?|introduce[sd]?|design[sd]?|develop[sd]?|construct[sd]?)"
+    r"|本研究提出|本文提出|我们提出|本文设计|本研究设计|本文构建|本研究构建|提出了一种|设计了一种|构建了一个",
+    re.I,
+)
+
+
+def _promise_tokens(obj: str) -> set:
+    """承诺对象的关键词元：拉丁实词 + 中文二字 shingle（短段整词保留）。"""
+    toks = {w for w in re.findall(r"[a-z]{3,}", obj.lower()) if w not in _FIT_STOPWORDS}
+    for seg in re.findall(r"[\u4e00-\u9fff]{2,}", obj):
+        if len(seg) <= 4:
+            toks.add(seg)
+        for i in range(len(seg) - 1):
+            toks.add(seg[i : i + 2])
+    return toks
+
+
+def check_abstract_promises(markdown: str) -> dict:
+    """摘要承诺兑现检查（L3 一致层）：摘要中提出的方法/框架必须在正文中再次出现。
+
+    提取摘要中的"承诺句"（we propose / 本研究提出 / 提出了一种…），取承诺对象的
+    关键词元；正文（摘要除外）中**零命中**才告警——宽松阈值设计，避免"正文换了
+    措辞"被误报。缺摘要不在此检查（归 check_abstract）。
+    """
+    if not markdown or not markdown.strip():
+        return {"ok": True, "issues": []}
+    ir = parse_paper_ir(markdown)
+    abstract = ir["abstract"]
+    if not abstract:
+        return {"ok": True, "issues": [], "summary": {"note": "未找到摘要段（摘要质量归 check_abstract）"}}
+    body_minus = "\n".join(s["text"] for s in ir["sections"] if not re.match(r"^(?:摘要|abstract)$", s["title"], flags=re.I))
+    if not body_minus.strip():
+        body_minus = ir["body"].replace(abstract, "")
+    body_terms = _fit_terms(body_minus)
+    full_starts = _line_starts(markdown)
+    offset = markdown.find(abstract.strip()[:24])
+    if offset < 0:
+        offset = 0
+    issues = []
+    stats = {"promises": 0, "unfulfilled": 0}
+    for pos, sent in iter_sentences(abstract, blank_fences=False):
+        m = _PROMISE_RE.search(sent)
+        if not m:
+            continue
+        obj = sent[m.end() :].strip(" 。，,.")
+        if not obj:
+            continue
+        stats["promises"] += 1
+        tokens = _promise_tokens(obj)
+        if tokens and not (tokens & body_terms):
+            stats["unfulfilled"] += 1
+            line = _pos_to_line(offset + pos, full_starts)
+            issues.append({"type": "abstract_promise_unfulfilled", "severity": "warning", "line": line, "detail": f"摘要承诺的「{obj[:24]}…」在正文中零词元命中——请确认正文兑现了摘要承诺，或修改摘要措辞"})
+    summary = {"promises": stats["promises"], "unfulfilled": stats["unfulfilled"]}
+    return {"ok": not issues, "issues": issues, "summary": summary, "note": "零命中才告警（宽松阈值）：正文换措辞不算未兑现；缺摘要归 check_abstract"}
+
+
+# L4 方法层：方法严谨**声明完备性**。statistical-analysis.md 知识的代码化——
+# 工具查"声明了没有"，不判"方法选对了没有"（后者归领域规范与人工）。
+_RIGOR_CHECKS = [
+    ("normality_test", "正态性检验",
+     r"\bt[- ]?test\b|t检验|t 检验|ANOVA|方差分析|线性回归|linear regression|\bPearson\b|皮尔逊",
+     r"正态性|正态分布(?:检验|假设)?|Shapiro[-– ]?Wilk|Kolmogorov[-– ]?Smirnov|normality (?:test|check|assumption)"),
+    ("multiple_comparisons", "多重比较校正",
+     r"ANOVA|方差分析|multiple (?:groups|comparisons)|多组比较|三组|四组",
+     r"多重比较|多重检验|Bonferroni|Holm|Benjamini|FDR|Sidak|Šidák|Tukey|Nemenyi|post[- ]?hoc|事后检验|multiple comparison"),
+    ("power_analysis", "效能/样本量论证",
+     r"\bt[- ]?test\b|t检验|t 检验|ANOVA|方差分析|回归|regression|卡方|chi[- ]?square|χ2",
+     r"效能分析|统计效能|检验效能|power analysis|a priori power|样本量(?:估算|计算|论证)|G\*Power|sample size (?:calculation|determination|justification)"),
+    ("randomization_blinding", "随机化/盲法",
+     r"随机对照|RCT\b|randomized controlled|临床试验|clinical trial|动物实验|animal experiment|in vivo",
+     r"随机(?:分配|分组|化)|random(?:ly|ization|ised|ized)?\s*(?:assign|allocat|divid)|盲法|双盲|单盲|blinded|blinding|masked"),
+    ("missing_data", "缺失数据交代",
+     r"问卷|survey|questionnaire|随访|follow[- ]?up|纵向|longitudinal|panel data",
+     r"缺失(?:数据|值)|missing data|drop[- ]?out|失访|插补|imputation|剔除标准|排除标准|listwise|pairwise"),
+]
+
+
+def check_rigor_declarations(markdown: str, genre: str = "empirical") -> dict:
+    """方法严谨声明完备性检查（L4 方法层，仅实证/学位体裁）。
+
+    检测触发场景（使用 t 检验/ANOVA/回归、声称 RCT、发放问卷等）后核对对应
+    声明是否在场：正态性检验、多重比较校正、效能/样本量论证、随机化/盲法、
+    缺失数据交代。只查声明在场（warning 级）——统计方法选择是否正确不在
+    文本工具射程内，归 statistical-analysis.md 知识与人工复核。
+    """
+    if not markdown or not markdown.strip():
+        return {"ok": True, "issues": []}
+    if (genre or "empirical").lower() not in ("empirical", "thesis"):
+        return {"ok": True, "issues": [], "summary": {"note": f"体裁 [{genre}] 非实证类，方法严谨声明检查跳过"}}
+    body, _refs = _split_body_references(markdown)
+    body = _blank_fences(body)
+    starts = _line_starts(body)
+    issues = []
+    triggered, declared = [], []
+    for key, label, trig, decl in _RIGOR_CHECKS:
+        tm = re.search(trig, body, flags=re.I)
+        if not tm:
+            continue
+        triggered.append(key)
+        dm = re.search(decl, body, flags=re.I)
+        if dm:
+            declared.append(key)
+            continue
+        issues.append({
+            "type": "rigor_declaration_missing",
+            "severity": "warning",
+            "line": _pos_to_line(tm.start(), starts),
+            "detail": f"检测到{label}触发场景但全文未见{label}声明（L{_pos_to_line(tm.start(), starts)} 附近）——方法交代不完整是审稿高频质疑点",
+        })
+    return {
+        "ok": not issues,
+        "issues": issues,
+        "summary": {"triggered": triggered, "declared": declared, "genre": genre},
+        "note": "声明完备性检查：工具查'声明了没有'，不判'方法选对了没有'；全部为 warning 级提示",
+    }
+
+
+# L5 规范层：盲审匿名化。双盲稿件泄漏作者身份是合规硬伤（error 级）。
+# 含"已隐去/masked"标注的行豁免——作者已按规程做了遮蔽。
+_SELF_PRIOR_WORK_RE = re.compile(
+    r"our (?:previous|prior|earlier|preceding) (?:work|study|research|paper|experiments?)"
+    r"|(?:我们|本文作者|作者)(?:的)?(?:之前|此前|先前|前期)(?:的)?(?:研究|工作|论文|实验)",
+    re.I,
+)
+_ACK_HEADING_RE = re.compile(r"^#{1,3}\s*(?:致\s?谢|acknowledg(?:ements?)?|funding)\s*$", re.M | re.I)
+_FUNDING_RE = re.compile(r"国家自然科学|社科基金|基金资助|项目资助|funded by|financial support|grant (?:no|number)", re.I)
+_MASKED_EXEMPT_RE = re.compile(r"隐去|已隐|已删|masked|omitted|removed for|anonymized|redacted", re.I)
+_LATEX_IDENTITY_RE = re.compile(r"\\author(?:\[[^\]]*\])?\s*\{([^}]+)\}|\\affiliation\s*\{([^}]+)\}|\\thanks\s*\{([^}]+)\}")
+_YAML_AUTHOR_RE = re.compile(r"^\s*(?:authors?|byline)\s*:\s*(\S.+)$", re.M | re.I)
+_PATH_LEAK_RE = re.compile(r"C:\\+Users\\+[A-Za-z0-9_.\\-]{2,30}|/home/[A-Za-z0-9_.\\-]{2,30}|/Users/[A-Za-z0-9_.\\-]{2,30}")
+
+
+def check_anonymization(markdown: str, blind: bool = False, source_format: str = "markdown") -> dict:
+    """盲审匿名化检查（L5 规范层，需显式 blind=true 启用）。
+
+    双盲评审稿件的身份泄漏点：致谢/基金标题或表述、"我们之前的研究"式自引
+    指涉、LaTeX \\author/\\affiliation/\\thanks 与 YAML frontmatter 作者字段、
+    正文中的本机路径。盲审违规为 error；含"已隐去/masked"标注的行豁免；
+    本机路径为 info（是否泄漏取决于文件用途）。blind=False 时诚实返回
+    未启用——单盲/开放评审无需匿名化，不制造噪声。
+    """
+    if not markdown or not markdown.strip():
+        return {"ok": True, "issues": []}
+    if not blind:
+        return {"ok": True, "issues": [], "summary": {"note": "未启用盲审模式（blind=true 启用）；单盲/开放评审无需匿名化检查"}}
+    body, _refs = _split_body_references(markdown)
+    body = _blank_fences(body)
+    starts = _line_starts(body)
+    issues = []
+
+    def _line_ok(pos: int) -> bool:
+        line_start = starts[_pos_to_line(pos, starts) - 1]
+        line_end = body.find("\n", line_start)
+        return not _MASKED_EXEMPT_RE.search(body[line_start : line_end if line_end >= 0 else len(body)])
+
+    for m in _ACK_HEADING_RE.finditer(body):
+        issues.append({"type": "acknowledgment_in_blind", "severity": "error", "line": _pos_to_line(m.start(), starts), "detail": "双盲稿件含致谢/Acknowledgments/Funding 段——审稿人可据此识别作者，必须整体移除（投稿系统内单独填写）"})
+    for m in _FUNDING_RE.finditer(body):
+        if _line_ok(m.start()):
+            issues.append({"type": "funding_in_blind", "severity": "error", "line": _pos_to_line(m.start(), starts), "detail": "双盲稿件出现基金/资助信息——应移至投稿系统或以'信息已隐去'标注整行"})
+    for m in _SELF_PRIOR_WORK_RE.finditer(body):
+        if _line_ok(m.start()):
+            issues.append({"type": "self_reference_leak", "severity": "error", "line": _pos_to_line(m.start(), starts), "detail": "双盲稿件出现指涉自身前期工作的表述——改为第三人称并匿名化该引用"})
+    for m in _LATEX_IDENTITY_RE.finditer(body):
+        content = next((g for g in m.groups() if g), "")
+        if content.strip():
+            issues.append({"type": "metadata_identity_leak", "severity": "error", "line": _pos_to_line(m.start(), starts), "detail": f"LaTeX 身份字段非空（\\author/\\affiliation/\\thanks → '{content[:24]}'）——双盲稿必须留空或匿名化"})
+    for m in _YAML_AUTHOR_RE.finditer(body):
+        if _line_ok(m.start()):
+            issues.append({"type": "metadata_identity_leak", "severity": "error", "line": _pos_to_line(m.start(), starts), "detail": f"frontmatter 作者字段（{m.group(1)[:24]}）——双盲稿必须移除"})
+    for m in _PATH_LEAK_RE.finditer(body):
+        issues.append({"type": "path_leak", "severity": "info", "line": _pos_to_line(m.start(), starts), "detail": f"正文含本机路径 '{m.group(0)}'——可能泄漏用户名/机构信息，建议改用相对路径"})
+    seen, deduped = set(), []
+    for i in issues:
+        key = (i["type"], i["line"])
+        if key not in seen:
+            seen.add(key)
+            deduped.append(i)
+    counts = {}
+    for i in deduped:
+        counts[i["type"]] = counts.get(i["type"], 0) + 1
+    return {"ok": not deduped, "issues": deduped[:12], "summary": counts, "note": "盲审违规=error；'已隐去/masked'标注行豁免；路径泄漏为 info。身份元数据是否合规以目标期刊双盲规程为准"}
+
+
+# L5 规范层：计量单位写法一致性。只做"同族单位混用"这种确定性比对
+#（ml/mL、ug/µg、℃/°C…），不判单位用得对不对。µ 有 U+00B5/U+03BC 两码位，
+# 加 u 代写变体；数字后空格风格也纳入一致性观察。
+_UNIT_FAMILIES = [
+    ("mL", ("ml", "mL")),
+    ("µL", ("uL", "ul", "µL", "µl", "μL", "μl")),
+    ("µg", ("ug", "µg", "μg")),
+    ("µm", ("um", "µm", "μm")),
+    ("kg", ("Kg", "KG", "kg")),
+    ("°C", ("°C", "°c", "℃")),
+    ("kHz", ("KHz", "khz", "kHz")),
+    ("MHz", ("Mhz", "MHZ", "MHz")),
+    ("kPa", ("KPa", "KPA", "kPa", "kpa")),
+]
+_UNIT_ANY_RE = re.compile(
+    r"(?<![A-Za-z°])(ml|mL|uL|ul|µL|µl|μL|μl|ug|µg|μg|um|µm|μm|Kg|KG|kg|°C|°c|℃|KHz|khz|kHz|Mhz|MHZ|MHz|KPa|KPA|kPa|kpa)(?![A-Za-z])"
+)
+
+
+def check_units(markdown: str) -> dict:
+    """计量单位写法一致性检查（L5 规范层）：同族单位多种写法混用时告警。
+
+    单位的正确选用是领域问题，工具不做；但同一篇稿子同时出现 '5 ml' 与
+    '10 mL'、'5 ug' 与 '10 µg'、'37 ℃' 与 '37 °C' 是确定的排版不一致——
+    编辑部与审稿人可见的低级观感伤害。µ 的两个 Unicode 码位（U+00B5/U+03BC）
+    与 u 代写均归同族比对。围栏代码不参与。severity=warning。
+    """
+    if not markdown or not markdown.strip():
+        return {"ok": True, "issues": []}
+    body, _refs = _split_body_references(markdown)
+    body = _blank_fences(body)
+    starts = _line_starts(body)
+    family_hits = {}
+    for m in _UNIT_ANY_RE.finditer(body):
+        token = m.group(1)
+        for canonical, variants in _UNIT_FAMILIES:
+            if token in variants:
+                line = _pos_to_line(m.start(), starts)
+                spaced = bool(re.search(r"\d\s$", body[max(0, m.start() - 3) : m.start()]))
+                family_hits.setdefault(canonical, []).append((token, spaced, line))
+                break
+    issues = []
+    for canonical, hits in sorted(family_hits.items()):
+        variants = sorted({h[0] for h in hits})
+        if len(variants) < 2:
+            continue
+        spaced = {h[1] for h in hits}
+        detail = f"单位写法不统一：{' 与 '.join(variants)} 混用（规范形式 {canonical}）"
+        if len(spaced) > 1:
+            detail += "；数字与单位间空格风格也不一致"
+        first = hits[0]
+        issues.append({"type": "unit_style_inconsistent", "severity": "warning", "line": first[2], "detail": detail + f"——首次混用见 L{first[2]}，请全文统一"})
+    return {"ok": not issues, "issues": issues[:8], "summary": {"familiesUsed": len(family_hits), "inconsistent": len(issues)}, "note": "只比对同族写法混用，不判单位选用对错；µ 的 U+00B5/U+03BC 两码位归同族"}
+
+
 # 样本量数字支持千分位逗号（"1,500 名参与者"），解析时去逗号——英文论文常见写法
 ZH_SAMPLE_PATTERN = re.compile(r"(样本量|样本数|样本|被试|受试者|参与者)\s*(?:量|数)?\s*[为约是=:]?\s*(\d{1,3}(?:,\d{3})+|\d{2,6})\s*([名份个人])?")
 EN_SAMPLE_PATTERN = re.compile(r"\b([Nn])\s*=\s*(\d{1,3}(?:,\d{3})+|\d{2,6})\b")
@@ -3516,12 +4157,18 @@ _GATE_REGISTRY = [
     ("references_completeness", "文献完整性（年份/来源/卷期页/类型标识/DOI 语法）", lambda md, genre: check_references_completeness(md)),
     ("references_recency", "文献时效性（陈旧综述信号）", lambda md, genre: check_references_recency(md)),
     ("placeholders", "占位符/未完成痕迹", lambda md, genre: check_placeholders(md)),
+    ("encoding", "文件底座：编码损坏/乱码/CID 残留", lambda md, genre: check_encoding(md)),
+    ("ethics", "P 前提：伦理/利益冲突/AI 披露/数据声明", lambda md, genre: check_ethics_statements(md, genre)),
     ("links", "链接可信（离线语法与虚假特征）", lambda md, genre: check_links(md)),
     ("vague_attribution", "模糊归因（无引注的'研究表明/专家认为'）", lambda md, genre: check_vague_attribution(md)),
     ("numbers", "数字一致性（口径/加和/百分比）", lambda md, genre: check_numbers(md)),
+    ("symbol", "符号一致性（一符一义/术语-符号漂移）", lambda md, genre: check_symbol_consistency(md)),
     ("stats", "统计红线（p值/效应量/CI）", lambda md, genre: check_stats(md)),
+    ("rigor", "方法严谨声明完备性（仅实证体裁）", lambda md, genre: check_rigor_declarations(md, genre)),
+    ("units", "计量单位写法一致性", lambda md, genre: check_units(md)),
     ("hedging", "断言对冲", lambda md, genre: check_hedging(md)),
     ("sections", "体裁必备章节", lambda md, genre: check_sections(md, genre)),
+    ("abstract_promises", "摘要承诺↔正文兑现", lambda md, genre: check_abstract_promises(md)),
     ("abstract", "摘要四要素", lambda md, genre: check_abstract(md, genre)),
     ("title", "标题质量", lambda md, genre: check_title(md)),
 ]
@@ -3562,7 +4209,7 @@ def gate_suite(markdown: str, gates: str = "", genre: str = "empirical", allow_c
     """组合门禁套件：一次运行选定的离线确定性检查器，输出统一 JSON 判定。
 
     为智能体迭代修复设计：返回 {"pass", "blocking", "gates":[...]}——智能体读取
-    verdict 后自动修复再重跑，直到 pass=true。默认跑全部 18 道门禁；
+    verdict 后自动修复再重跑，直到 pass=true。默认跑全部 25 道门禁；
     gates 参数传逗号分隔子集（如 "style,numbers,stats"）。统计门禁仅实证体裁生效。
     通过判定与 proofread 纪律一致：ERROR 计数为 0。
     """
@@ -3632,7 +4279,10 @@ _AGENT_PLAN = {
     "submission": [
         {"stage": "定目标", "tool": "journal_matcher", "params": "按主题关键词取候选，人工锁定唯一优先目标", "pass": "目标期刊已锁定"},
         {"stage": "定篇幅", "tool": "render_template", "params": "genre=论文体裁, journal=目标期刊档", "pass": "分章词数基准已写入稿头"},
+        {"stage": "投稿资格", "tool": "check_ethics_statements", "params": "genre=论文体裁", "pass": "伦理/利益冲突/AI 披露/数据声明齐备（error=0）"},
         {"stage": "文献", "tool": "verify_references", "params": "全文", "pass": "C 级清零（X 级联网重跑）"},
+        {"stage": "撤稿筛查", "tool": "check_retraction", "params": "全文", "pass": "无 cited_retracted_work（X 级联网重跑）"},
+        {"stage": "契合与版本", "tool": "check_claim_citation_fit + check_version_mismatch", "params": "全文", "pass": "弱契合/预印本错配项已人工复核"},
         {"stage": "初检", "tool": "gate_suite", "params": "genre=论文体裁", "pass": "pass=true（ERROR=0）"},
         {"stage": "统计", "tool": "check_stats", "params": "全文（实证体裁）", "pass": "无 p_zero/p_out_of_range"},
         {"stage": "精修", "tool": "check_style + check_ai_signature", "params": "全文，逐处重写模板腔", "pass": "warning 级 AI 高频词清零"},
@@ -3641,14 +4291,16 @@ _AGENT_PLAN = {
     ],
     "thesis": [
         {"stage": "合并", "tool": "audit_project", "params": "project_dir=分章目录", "pass": "跨章缩写/重复/引用问题清零"},
+        {"stage": "资格声明", "tool": "check_ethics_statements", "params": "合并全文, genre=thesis", "pass": "伦理/利益冲突/AI 披露/数据声明齐备"},
         {"stage": "文献", "tool": "verify_references", "params": "合并全文 --fail-on C", "pass": "C 级清零"},
+        {"stage": "撤稿筛查", "tool": "check_retraction", "params": "合并全文", "pass": "无 cited_retracted_work（X 级不计失败）"},
         {"stage": "自查重", "tool": "check_self_plagiarism", "params": "corpus_dir=历史稿目录", "pass": "命中项已人工裁决"},
         {"stage": "终审", "tool": "audit_paper", "params": "genre=thesis", "pass": "errors=0"},
     ],
     "polish": [
         {"stage": "定位", "tool": "check_style", "params": "全文", "pass": "已逐处过目"},
         {"stage": "画像", "tool": "check_ai_signature", "params": "全文", "pass": "模板腔段落已重写"},
-        {"stage": "残留", "tool": "check_tamper_traces", "params": "全文", "pass": "无零宽/同形字/异常空白"},
+        {"stage": "残留", "tool": "check_tamper_traces + check_encoding + check_units", "params": "全文", "pass": "无零宽/同形字/编码损坏/单位混用"},
         {"stage": "增量", "tool": "audit_delta", "params": "before=修改前, after=修改后", "pass": "verdict=净改善"},
     ],
 }
@@ -4114,6 +4766,99 @@ TOOLS = [
         "inputSchema": {"type": "object", "properties": {"markdown": {"type": "string"}}, "required": ["markdown"]},
     },
     {
+        "name": "check_encoding",
+        "description": "编码健康检查（文件底座层）：U+FFFD 替换符与 (cid:NN) PDF 提取残留（文本不可读，error 级）、UTF-8 被按 Latin-1 误读的乱码特征、异常控制字符、文中部 BOM。底座损坏时上层所有行号证据不可信——交付前必须清零。",
+        "inputSchema": {"type": "object", "properties": {"markdown": {"type": "string"}}, "required": ["markdown"]},
+    },
+    {
+        "name": "check_ethics_statements",
+        "description": "合法前提检查（门禁塔 P 层）：伦理审批/知情同意、利益冲突披露、AI 使用披露（AIGC 合规）、数据可用性声明的存在性。正文提及人类受试者而缺伦理声明为 error（桌拒红线），其余缺失为 warning。工具只查声明在场，真伪归作者与机构。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "markdown": {"type": "string"},
+                "genre": {"type": "string", "description": "survey | empirical | tech | thesis | argumentative，默认 empirical（empirical/thesis 要求伦理与数据声明）", "default": "empirical"},
+            },
+            "required": ["markdown"],
+        },
+    },
+    {
+        "name": "check_retraction",
+        "description": "撤稿筛查（联网，L1 存在层）：逐条查被引文献是否已被撤稿——Crossref update-to/relation.is-retracted-by 记录与撤稿声明标题特征，属外部 API 事实。引用撤稿成果为 error（诚信硬伤）；网络失败按 X 级纪律记 unverifiable（info），永不触发门禁。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "markdown": {"type": "string", "description": "含 References/参考文献 段的论文全文"},
+                "max_entries": {"type": "integer", "description": "单次核查条数上限，默认 30", "default": 30},
+            },
+            "required": ["markdown"],
+        },
+    },
+    {
+        "name": "check_claim_citation_fit",
+        "description": "引证契合检查（联网+缓存，L2 契合层）：对'带强主张措辞+引注'的句子，比对其词元与所引文献标题/摘要词元的重叠率，过低时提示人工复核。词汇契合度低≠引文错误（warning 级，需人工判断）；无法获取所引文献元数据时诚实降级不计入失败。语义级'源文是否真支持主张'不做（需模型推理）。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "markdown": {"type": "string"},
+                "max_assessed": {"type": "integer", "description": "单次评估句数上限（API 礼貌），默认 15", "default": 15},
+            },
+            "required": ["markdown"],
+        },
+    },
+    {
+        "name": "check_version_mismatch",
+        "description": "预印本-正式版错配检查（联网，L2 契合层）：文献条目含 arXiv 标识时，按标题在 Crossref 检索正式发表版（相似度阈值防误配）；命中且非预印本自身即提示更新引用。warning 级——预印本引用并非错误，但正式版已存在时应更新元数据。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "markdown": {"type": "string", "description": "含 References/参考文献 段的论文全文"},
+                "max_entries": {"type": "integer", "description": "单次核查条数上限，默认 30", "default": 30},
+            },
+            "required": ["markdown"],
+        },
+    },
+    {
+        "name": "check_symbol_consistency",
+        "description": "符号一致性检查（L3 一致层）：从定义句（'λ 表示学习率'/'where λ denotes…'/'设 λ 为…'）建立符号→含义映射，同一符号被定义为两个不同含义为 error（一符一义红线，读者必然误读），同一含义被多个符号表示为 warning。围栏代码与显示公式不参与；希腊字符与 LaTeX 命名归一化后比对。",
+        "inputSchema": {"type": "object", "properties": {"markdown": {"type": "string"}}, "required": ["markdown"]},
+    },
+    {
+        "name": "check_abstract_promises",
+        "description": "摘要承诺兑现检查（L3 一致层）：提取摘要中的承诺句（we propose / 本研究提出 / 提出了一种…），其对象关键词在正文（摘要除外）中零词元命中才告警——'摘要画大饼、正文没有'是审稿意见 discrepancy between abstract and body 的直接来源。宽松阈值防误报；缺摘要归 check_abstract。",
+        "inputSchema": {"type": "object", "properties": {"markdown": {"type": "string"}}, "required": ["markdown"]},
+    },
+    {
+        "name": "check_rigor_declarations",
+        "description": "方法严谨声明完备性检查（L4 方法层，仅实证/学位体裁）：检测触发场景（t 检验/ANOVA/回归、声称 RCT、发放问卷等）后核对声明在场——正态性检验、多重比较校正、效能/样本量论证、随机化/盲法、缺失数据交代。只查'声明了没有'（warning），不判'方法选对了没有'。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "markdown": {"type": "string"},
+                "genre": {"type": "string", "description": "survey | empirical | tech | thesis | argumentative，默认 empirical（非实证体裁跳过）", "default": "empirical"},
+            },
+            "required": ["markdown"],
+        },
+    },
+    {
+        "name": "check_anonymization",
+        "description": "盲审匿名化检查（L5 规范层，需显式 blind=true）：检出双盲稿件的身份泄漏——致谢/基金段、'我们之前的研究'式自引指涉、LaTeX \\author/\\affiliation/\\thanks 与 frontmatter 作者字段（error），本机路径（info）。含'已隐去/masked'标注的行豁免。blind=False 时诚实返回未启用（单盲/开放评审无需匿名化）。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "markdown": {"type": "string"},
+                "blind": {"type": "boolean", "description": "是否双盲评审（默认 false，false 时仅返回未启用说明）", "default": False},
+                "source_format": {"type": "string", "description": "markdown | latex，默认 markdown", "default": "markdown"},
+            },
+            "required": ["markdown"],
+        },
+    },
+    {
+        "name": "check_units",
+        "description": "计量单位写法一致性检查（L5 规范层）：同族单位多种写法混用（ml/mL、ug/µg、℃/°C、KHz/kHz…）时告警，µ 的 U+00B5/U+03BC 两码位与 u 代写归同族比对，数字-单位空格风格不一致一并提示。只比对写法混用（warning），不判单位选用对错；围栏代码不参与。",
+        "inputSchema": {"type": "object", "properties": {"markdown": {"type": "string"}}, "required": ["markdown"]},
+    },
+    {
         "name": "audit_delta",
         "description": "修复增量对比：对修改前后两版跑同一门禁束，输出 已修复/新引入/仍存在 的差集与净改善判定——智能体每轮修改后调用一次即可验证改动质量，避免按下葫芦浮起瓢。",
         "inputSchema": {
@@ -4177,6 +4922,16 @@ _TOOL_DESC_EN = {
     "check_references_recency": "Literature-recency signal: with four or more dated entries, reports median reference age; flags when all or 70%+ of references are older than 10 years as a stale-review signal.",
     "check_placeholders": "Placeholder and unfinished-work traces: TODO, FIXME, ???, [citation needed], and Chinese equivalents — must be zero before delivery.",
     "check_links": "Link trustworthiness: offline checks for placeholder domains (example.com/localhost), reserved/invalid TLDs, and hostless URLs; with live=true, HEAD-verifies each URL (404/410 dead links; blocked requests reported honestly as unverifiable).",
+    "check_encoding": "Encoding health check (document substrate): U+FFFD replacement chars and (cid:N) PDF-extraction artifacts (unreadable text, error-level), UTF-8-read-as-Latin-1 mojibake signatures, stray control characters, and mid-file BOM. A broken substrate invalidates every line-numbered finding above it.",
+    "check_ethics_statements": "Legitimacy-precondition check (gate tower layer P): presence of ethics approval / informed consent, conflict-of-interest disclosure, AI-use disclosure (AIGC compliance), and data availability statements. Missing ethics with human subjects in the text is an error (desk-reject redline); other absences are warnings. Presence only — statement truth is the authors' responsibility.",
+    "check_retraction": "Retraction screening (live, gate tower layer L1): checks each cited work against Crossref update-to / relation.is-retracted-by records and retraction-notice title signatures — external API facts, not heuristics. Citing a retracted work is an error (integrity hardline); network failures are reported as unverifiable (info) per the X-grade discipline and never trip the gate.",
+    "check_claim_citation_fit": "Claim-citation fit check (live+cache, gate tower layer L2): for sentences carrying strong-claim wording plus a citation, compares lexical overlap between the claim and the cited source's title/abstract; low overlap suggests manual review. Low fit does not mean a wrong citation (warning-level); sources that cannot be fetched are honestly skipped. Semantic support verification is out of scope (would require model inference).",
+    "check_version_mismatch": "Preprint-to-published version mismatch check (live, gate tower layer L2): when a reference entry carries an arXiv identifier, searches Crossref by title for a formally published version (similarity threshold guards against false matches); a hit that is not the preprint itself suggests updating the citation. Warning-level — citing a preprint is not wrong, but the citation should be refreshed when a published version exists.",
+    "check_symbol_consistency": "Symbol consistency check (gate tower layer L3): builds a symbol-to-meaning map from definition sentences ('λ denotes the learning rate' / '设 λ 为学习率'); one symbol defined as two dissimilar meanings is an error (the one-symbol-one-meaning redline), one meaning carried by several symbols is a warning. Fenced code and display math are exempt; Greek characters and LaTeX macro names are normalized before comparison.",
+    "check_abstract_promises": "Abstract-promise fulfillment check (gate tower layer L3): extracts promise sentences from the abstract (we propose / 本研究提出 / 提出了一种…) and reports when the promised object's key terms never appear in the body — the direct source of 'discrepancy between abstract and body' reviewer comments. A lenient zero-overlap threshold avoids false alarms on reworded bodies; missing abstracts belong to check_abstract.",
+    "check_rigor_declarations": "Methodological rigor declaration check (gate tower layer L4, empirical/thesis genres): when a trigger scenario is detected (t-tests/ANOVA/regression, claimed RCT, questionnaire surveys), verifies the corresponding statement is present — normality testing, multiple-comparison correction, power/sample-size justification, randomization/blinding, missing-data handling. Presence only (warnings); whether the chosen method is correct is outside text-tool scope.",
+    "check_anonymization": "Blind-review anonymization check (gate tower layer L5, requires explicit blind=true): detects identity leaks in double-blind submissions — acknowledgments/funding sections, self-referring phrases like 'our previous work', non-empty LaTeX \\author/\\affiliation/\\thanks and frontmatter author fields (errors), and local filesystem paths (info). Lines marked as masked/redacted are exempt. With blind=false it honestly reports itself not applicable — single-blind/open review needs no anonymization.",
+    "check_units": "Measurement-unit style consistency check (gate tower layer L5): warns when the same unit family is written multiple ways (ml/mL, ug/µg, ℃/°C, KHz/kHz…); both Unicode codepoints of µ (U+00B5/U+03BC) and the u-substitute belong to one family, and digit-unit spacing inconsistency is flagged alongside. Compares writing styles only (warnings), not whether the unit itself is appropriate; fenced code exempt.",
     "audit_delta": "Fix-delta comparison: runs the same gate bundle on before/after manuscripts and reports fixed vs introduced vs persisted findings with a net-improvement verdict, so every agent edit round is verified.",
 }
 
@@ -4221,6 +4976,16 @@ _TOOL_DESC_JA = {
     "check_references_recency": "文献の鮮度：特定可能な年が4件以上のとき、中央値文献年齢と古い割合を報告し、陳腐化シグナルを提示。",
     "check_placeholders": "プレースホルダ痕跡：TODO、FIXME、???、[citation needed]、待补充など、提出前に必ず除去。",
     "check_links": "リンク信頼性：プレースホルダドメイン・無効TLD・ホストなしURLをオフライン検査；live=trueでHEAD検証（404/410は死リンク）。",
+    "check_encoding": "エンコーディング健全性検査（文書基盤）：U+FFFD置換文字と(cid:N) PDF抽出残骸（読めない文字、error）、UTF-8をLatin-1誤読した文字化けシグネチャ、異常制御文字、文中BOMを検出。基盤が壊れると行番号証拠は無効化される。",
+    "check_ethics_statements": "適法性前提検査（ゲート塔P層）：倫理承認/インフォームド・コンセント、利益相反開示、AI利用開示（AIGC準拠）、データ利用可能性声明の存在確認。人間被験者に言及しつつ倫理声明が欠落の場合はerror（デスクリジェクト級）、その他の欠落はwarning。存在確認のみで真偽は著者の責任。",
+    "check_retraction": "撤稿スクリーニング（オンライン、ゲート塔L1層）：Crossref の update-to / relation.is-retracted-by 記録と撤稿声明タイトルにより、引用文献の撤稿状態を確認（外部APIの事実）。撤稿済み文献の引用はerror（誠信の要警戒事項）、ネットワーク失敗はX級規律に従い unverifiable（info）としてゲートを発動しない。",
+    "check_claim_citation_fit": "主張-引用適合検査（オンライン+キャッシュ、ゲート塔L2層）：強い主張表現+引用を含む文について、主張文と被引用文献のタイトル/抄録との語彙重複率を比較し、低過ぎる場合は手動確認を提示。適合度が低い≠引用が誤り（warning）。意味レベルの裏付け検証は対象外（モデル推論が必要）。",
+    "check_version_mismatch": "プレプリント-正式版不一致検査（オンライン、ゲート塔L2層）：arXiv識別子を含む文献について、タイトルでCrossref検索し正式発表版が存在すれば引用更新を提示（warning）。プレプリント引用自体は誤りではない。",
+    "check_symbol_consistency": "記号整合性検査（ゲート塔L3層）：定義文（'λ は学習率を表す'/'λ denotes the learning rate'）から記号→意味マップを構築し、同一記号が異なる意味に定義されればerror（一記号一義のレッドライン）、同一意味に複数記号が使われればwarning。コードブロックとディスプレイ数式は対象外。",
+    "check_abstract_promises": "抄録承诺の履行検査（ゲート塔L3層）：抄録の提案文（we propose/本研究提出）を抽出し、その対象キーワードが本文に全く現れない場合に警告——「抄録と本文の不一致」審査意見の直接の源泉。緩い閾値で誤報を防止。",
+    "check_rigor_declarations": "方法論的厳密性声明検査（ゲート塔L4層、実証/学位論文体裁）：トリガー検出（t検定/ANOVA/RCT/アンケート等）後に対応する声明の存在を確認——正規性検定、多重比較補正、検定力/サンプルサイズ、ランダム化/盲検、欠損データ。声明の存在のみ確認（warning）。",
+    "check_anonymization": "盲検匿名化検査（ゲート塔L5層、blind=true が必要）：ダブルブラインド稿の身元漏れを検出——謝辞/資金セクション、自著先行研究への言及、LaTeX \\author/\\affiliation/\\thanks と frontmatter 著者欄（error）、ローカルパス（info）。マスク済み記載行は免除。blind=false では未適用と正直に返す。",
+    "check_units": "計量単位表記整合性検査（ゲート塔L5層）：同じ単位族の複数表記（ml/mL、ug/µg、℃/°C など）の混用を警告。µ の2つのUnicodeコードポイントと u 代写は同族、数字-単位間スペースも対象。表記の比較のみ（warning）。",
     "audit_delta": "修正差分比較：修正前後の原稿に同一ゲート束を実行し、解決/新規/残存を差集合で報告し、純改善判定を返す。",
 }
 
@@ -4416,6 +5181,26 @@ def _call_tool(name: str, arguments: dict) -> dict:
         return _result_text(json.dumps(check_placeholders(_md(args)), ensure_ascii=False))
     if name == "check_links":
         return _result_text(json.dumps(check_links(_md(args), bool(args.get("live", False))), ensure_ascii=False))
+    if name == "check_encoding":
+        return _result_text(json.dumps(check_encoding(_md(args)), ensure_ascii=False))
+    if name == "check_ethics_statements":
+        return _result_text(json.dumps(check_ethics_statements(_md(args), str(args.get("genre", "empirical"))), ensure_ascii=False))
+    if name == "check_retraction":
+        return _result_text(json.dumps(check_retraction(_md(args), int(args.get("max_entries", 30))), ensure_ascii=False))
+    if name == "check_claim_citation_fit":
+        return _result_text(json.dumps(check_claim_citation_fit(_md(args), int(args.get("max_assessed", 15))), ensure_ascii=False))
+    if name == "check_version_mismatch":
+        return _result_text(json.dumps(check_version_mismatch(_md(args), int(args.get("max_entries", 30))), ensure_ascii=False))
+    if name == "check_symbol_consistency":
+        return _result_text(json.dumps(check_symbol_consistency(_md(args)), ensure_ascii=False))
+    if name == "check_abstract_promises":
+        return _result_text(json.dumps(check_abstract_promises(_md(args)), ensure_ascii=False))
+    if name == "check_rigor_declarations":
+        return _result_text(json.dumps(check_rigor_declarations(_md(args), str(args.get("genre", "empirical"))), ensure_ascii=False))
+    if name == "check_anonymization":
+        return _result_text(json.dumps(check_anonymization(_md(args), bool(args.get("blind", False)), str(args.get("source_format", "markdown"))), ensure_ascii=False))
+    if name == "check_units":
+        return _result_text(json.dumps(check_units(_md(args)), ensure_ascii=False))
     if name == "audit_delta":
         return _result_text(
             audit_delta(

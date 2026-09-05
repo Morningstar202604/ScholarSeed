@@ -13,7 +13,7 @@
 ![Python](https://img.shields.io/badge/python-3.9%2B-3776AB.svg)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-**41 个确定性 MCP 工具 · 5 项流水线技能 · 70 篇 × 9 学科真实论文校准 · 零依赖（纯标准库）**
+**51 个确定性 MCP 工具 · 5 项流水线技能 · 70 篇 × 9 学科真实论文校准 · 零依赖（纯标准库）**
 
 与 [AgentSeed](https://github.com/Morningstar202604/AgentSeed)（代码防幻觉）组成矩阵：AgentSeed 保证代码不撒谎，ScholarSeed 保证论文能交付——**随便用哪个 AI 写初稿，提交前必须过一道能自证清白的门。**
 
@@ -68,7 +68,7 @@ ScholarSeed 就是围绕这个不对称构建的：
    尽力而为的 .pdf）     │  ┌──────────┐ ┌──────────┐ ┌──────────┐ │
    ┌────────────┐      │  │ 引文核验  │ │ 全文门禁  │ │ 报告输出  │ │
    │  MCP 服务器 ├─────┼─▶│ Crossref │ │ 文风·数字 │ │ 0-100 分  │ │
-   │ (41 个工具)  │JSON │  │ S2/OpenAlex│ │ 统计·图表 │ │ +A/B/C   │ │
+   │ (51 个工具)  │JSON │  │ S2/OpenAlex│ │ 统计·图表 │ │ +A/B/C   │ │
    └────────────┘      │  └────┬─────┘ └──────────┘ └──────────┘ │
    ┌────────────┐      │       │ 磁盘缓存                          │
    │    CLI     ├──────┼───────┘ 默认 24h（可调）                  │
@@ -76,7 +76,7 @@ ScholarSeed 就是围绕这个不对称构建的：
    └────────────┘      └─────────────────────────────────────────┘
 ```
 
-1. **同一引擎，两处入口**。`scripts/paper_tools.py` 通过 Model Context Protocol 暴露 41 个工具（Cursor/Claude/Codex 等任何 MCP 客户端可用）；`scripts/cli.py` 为人类和 CI 脚本驱动完全相同的函数。两处行为零漂移。
+1. **同一引擎，两处入口**。`scripts/paper_tools.py` 通过 Model Context Protocol 暴露 51 个工具（Cursor/Claude/Codex 等任何 MCP 客户端可用）；`scripts/cli.py` 为人类和 CI 脚本驱动完全相同的函数。两处行为零漂移。
 2. **确定性规则，不靠感觉**。每道门禁都是可复现规则：同输入必得同结果，每条发现带可手工验证的行号。
 3. **真实数据源 + 缓存**。`citation_verify` / `verify_references` / `lit_search` / `journal_search_openalex` 实时调用真实 API（Crossref、Semantic Scholar、OpenAlex），经磁盘缓存（默认 TTL 24h，`SCHOLARSEED_CACHE_TTL` 可调，`0` 关闭）。
 4. **诚实降级**。无法可靠检查的项目（如 CID 编码的中文 PDF）会在报告中明确标注跳过，绝不硬猜。
@@ -85,7 +85,7 @@ ScholarSeed 就是围绕这个不对称构建的：
 
 ## 写作流水线
 
-五个技能把 41 个工具串成一条流水线（选题 → 文献 → 大纲 → 分章写作 → 引文核验 → 润色 → 投稿前评审 → 发表）。大模型负责写正文；技能在每一步强制调用工具门禁，不通过不得进入下一阶段：
+五个技能把 51 个工具串成一条流水线（选题 → 文献 → 大纲 → 分章写作 → 引文核验 → 润色 → 投稿前评审 → 发表）。大模型负责写正文；技能在每一步强制调用工具门禁，不通过不得进入下一阶段：
 
 | 流水线阶段 | 门禁工具 | 通过条件 |
 |---|---|---|
@@ -193,6 +193,9 @@ python scripts/cli.py check tamper draft.md         # 确认无不可见字符�
 |------|------|
 | `citation_verify` | Crossref 存在性核验：DOI 精确匹配或标题检索（相似度阈值防误配）；字段交叉验证；A/B/C 分级 |
 | `verify_references` | **批量文献核验**：逐条 DOI 优先 + 标题回退；Markdown 汇总报告含 A/B/C 统计。交付/投稿前强制门禁 |
+| `check_retraction` | **撤稿筛查（联网）**：逐条查被引文献撤稿状态（Crossref update-to / relation 记录与撤稿声明标题）——引用撤稿成果为 error；网络失败按 X 级纪律永不触发门禁 |
+| `check_claim_citation_fit` | **引证契合（联网）**：强主张句与所引文献标题/摘要的词汇重叠率比对，过低提示人工复核（warning，非判决） |
+| `check_version_mismatch` | **预印本-正式版错配（联网）**：arXiv 引用条目按标题在 Crossref 检索正式发表版，命中即提示更新引用（warning） |
 | `format_citation` | **引用条目格式化**：经 Crossref 核验后输出 APA 7 / GB-T 7714 / IEEE / MLA 9 / Chicago / BibTeX 条目；未核验不出条目（防幻觉门禁） |
 | `lit_search` | Semantic Scholar 论文检索：标题/作者/年份/摘要/被引/DOI |
 | `journal_search_openalex` | OpenAlex 全学科期刊实时检索 |
@@ -203,6 +206,13 @@ python scripts/cli.py check tamper draft.md         # 确认无不可见字符�
 
 | 工具 | 说明 |
 |------|------|
+| `check_encoding` | **编码健康（文件底座）**：U+FFFD 替换符与 (cid:N) PDF 提取残留（error，文本不可读）、UTF-8 被 Latin-1 误读的乱码特征、异常控制字符、文中部 BOM |
+| `check_ethics_statements` | **合法前提声明**：伦理/知情同意、利益冲突、AI 使用披露（AIGC 合规）、数据可用性声明的存在性；涉人研究缺伦理声明为 error |
+| `check_symbol_consistency` | **一符一义**：从定义句建符号→含义映射，同一符号两种含义=error，同一含义多符号=warning（希腊字符与 LaTeX 宏名归一化互认） |
+| `check_abstract_promises` | **摘要承诺兑现**：摘要提出的方法/框架（we propose / 本研究提出）须在正文再出现，零词元命中才告警（宽松阈值防误报） |
+| `check_rigor_declarations` | **方法严谨声明完备性**（实证/学位体裁）：正态性、多重比较校正、效能/样本量、随机盲法、缺失数据——触发场景下核对声明在场 |
+| `check_anonymization` | **盲审匿名化**（需 `blind=true`）：致谢/基金、自引指涉、LaTeX uthor 与 frontmatter 身份字段（error）、本机路径（info）；'已隐去'标注行豁免 |
+| `check_units` | **计量单位写法一致性**：同族单位混用（ml/mL、ug/µg、℃/°C），µ 的两码位与 u 代写归同族，数字-单位空格风格（warning） |
 | `check_style` | 文风门禁：AI 高频词、口语化、填充短语、夸大表述、超长段句（含行号） |
 | `check_punctuation` | 标点：中英文半全角混用（忽略代码块） |
 | `check_figures_tables` | 图表完整性：编号断层、题注 ↔ 正文引用失配 |
@@ -299,7 +309,7 @@ python scripts/cli.py project ./thesis-chapters          # 多文件学位论文
 ## FAQ
 
 **这是 AI 写作助手吗？**
-它是围绕 AI 辅助写作的**质量门禁层**。内置技能把任何大模型编排进写作流水线；ScholarSeed 自己的 41 个工具从不生成正文——只做核验、门禁与证据留档。
+它是围绕 AI 辅助写作的**质量门禁层**。内置技能把任何大模型编排进写作流水线；ScholarSeed 自己的 51 个工具从不生成正文——只做核验、门禁与证据留档。
 
 **它是 GPTZero 那样的 AI 检测器吗？**
 不是。它提供**文风自检**（润色自己的稿子）与**残留取证**（客观的处理痕迹）。拒绝输出单一"AI 率"判决——那个数字科学上站不住，且对规避文体的检出率未测（见[为什么需要 ScholarSeed](#为什么需要-scholarseed)）。
@@ -317,7 +327,7 @@ python scripts/cli.py project ./thesis-chapters          # 多文件学位论文
 让它跑在任何有 Python 的机器上——实验室服务器、学生笔记本、物理隔离的评审环境、CI 容器——没有会坏的东西，需要审计的也只有我们的代码。
 
 **怎么相信启发式不是拍脑袋调的？**
-阈值只能伴随语料级回归重跑才能调整（CORPUS-BENCHMARK.md 的防过拟合规则），由 237 个单元测试和 CI（Python 3.9–3.13）发布门禁强制执行。
+阈值只能伴随语料级回归重跑才能调整（CORPUS-BENCHMARK.md 的防过拟合规则），由 306 个单元测试和 CI（Python 3.9–3.13）发布门禁强制执行。
 
 ## 兼容客户端
 
@@ -334,7 +344,7 @@ python scripts/cli.py project ./thesis-chapters          # 多文件学位论文
 
 ```bash
 python scripts/validate_plugin.py        # 插件规范校验
-python -m unittest discover -s tests -v  # 单元测试（237）
+python -m unittest discover -s tests -v  # 单元测试（306）
 python benchmarks/adversarial_suite.py   # 对抗回归（RAID 风格攻击）
 python scripts/release_gate.py           # 发布门禁（校验 + 测试）
 ```

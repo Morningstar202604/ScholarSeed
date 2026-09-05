@@ -13,7 +13,7 @@
 ![Python](https://img.shields.io/badge/python-3.9%2B-3776AB.svg)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-**41 deterministic MCP tools · 5 pipeline skills · calibrated on 70 real arXiv papers · zero dependencies (pure Python stdlib)**
+**51 deterministic MCP tools · 5 pipeline skills · calibrated on 70 real arXiv papers · zero dependencies (pure Python stdlib)**
 
 Sister project of [AgentSeed](https://github.com/Morningstar202604/AgentSeed): AgentSeed keeps code honest, ScholarSeed keeps papers deliverable — **write with any AI you like, submit only through gates that can prove the manuscript is clean.**
 
@@ -69,7 +69,7 @@ One engine, two surfaces:
    .pdf)               │  │ Citations│ │  Gates   │ │ Reporting│ │
    ┌────────────┐      │  │ Crossref │ │ style·num│ │ score 0- │ │
    │  MCP server ├─────┼─▶│ S2       │ │ stats·fig│ │ 100+A/B/C│ │
-   │ (41 tools)  │JSON │  │ OpenAlex │ │ traces…  │ │ evidence │ │
+   │ (51 tools)  │JSON │  │ OpenAlex │ │ traces…  │ │ evidence │ │
    └────────────┘      │  └────┬─────┘ └──────────┘ └──────────┘ │
    ┌────────────┐      │       │ disk cache                       │
    │    CLI     ├──────┼───────┘ TTL 24h (tunable)                │
@@ -77,7 +77,7 @@ One engine, two surfaces:
    └────────────┘      └─────────────────────────────────────────┘
 ```
 
-1. **Same engine everywhere.** `scripts/paper_tools.py` exposes 41 tools over the Model Context Protocol (for Cursor/Claude/Codex/any MCP client); `scripts/cli.py` drives the identical functions for humans and CI scripts. No behavior drift between the two.
+1. **Same engine everywhere.** `scripts/paper_tools.py` exposes 51 tools over the Model Context Protocol (for Cursor/Claude/Codex/any MCP client); `scripts/cli.py` drives the identical functions for humans and CI scripts. No behavior drift between the two.
 2. **Deterministic rules, not vibes.** Every gate is a reproducible rule: same input always yields the same findings, each with line numbers you can verify by hand.
 3. **Live sources, cached.** `citation_verify` / `verify_references` / `lit_search` / `journal_search_openalex` hit real APIs (Crossref, Semantic Scholar, OpenAlex) through a disk cache (default TTL 24h, `SCHOLARSEED_CACHE_TTL` to tune, `0` disables).
 4. **Honest degradation.** When something can't be checked reliably (e.g., CID-encoded Chinese PDFs), reports say so explicitly instead of guessing.
@@ -86,7 +86,7 @@ One engine, two surfaces:
 
 ## The Writing Pipeline
 
-The five bundled skills turn 41 tools into a pipeline (topic → literature → outline → drafting → citation verification → polish → pre-submission review → publish). The agent writes prose; the skills force a tool gate at every stage and forbid advancing until it passes:
+The five bundled skills turn 51 tools into a pipeline (topic → literature → outline → drafting → citation verification → polish → pre-submission review → publish). The agent writes prose; the skills force a tool gate at every stage and forbid advancing until it passes:
 
 | Pipeline stage | Gate tool | Pass condition |
 |---|---|---|
@@ -196,6 +196,9 @@ Five knowledge-base skills ship alongside the tools (auto-discovered under `skil
 |------|-------------|
 | `citation_verify` | Crossref existence check: DOI precise match or title search with similarity threshold; field cross-checks; A/B/C grade |
 | `verify_references` | **Batch reference verification**: per-entry DOI-first lookup with title fallback; Markdown summary with A/B/C counts. Mandatory gate before delivery/submission |
+| `check_retraction` | **Retraction screening (live)**: checks each cited work against Crossref retraction records (update-to / relation) and retraction-notice titles — citing a retracted work is an error; network failures never trip the gate (X-grade) |
+| `check_claim_citation_fit` | **Claim-citation fit (live)**: lexical overlap between strong-claim sentences and the cited source's title/abstract; low fit suggests manual review (warning, not a verdict) |
+| `check_version_mismatch` | **Preprint/published mismatch (live)**: arXiv-cited entries searched against Crossref for a formally published version; suggests updating the citation (warning) |
 | `format_citation` | **Citation entry formatter**: verify via Crossref then emit APA 7 / GB-T 7714 / IEEE / MLA 9 / Chicago / BibTeX entries; no entry unless verified (anti-hallucination gate) |
 | `lit_search` | Semantic Scholar paper search: title/authors/year/abstract/citations/DOI |
 | `journal_search_openalex` | OpenAlex live journal search across all disciplines |
@@ -206,6 +209,13 @@ Five knowledge-base skills ship alongside the tools (auto-discovered under `skil
 
 | Tool | Description |
 |------|-------------|
+| `check_encoding` | **Encoding health (substrate)**: U+FFFD replacement chars & (cid:N) PDF-extraction artifacts (error), UTF-8-as-Latin-1 mojibake signatures, control characters, mid-file BOM |
+| `check_ethics_statements` | **Legitimacy preconditions**: ethics/informed-consent, conflict-of-interest, AI-use disclosure (AIGC compliance), data-availability statement presence; missing ethics with human subjects = error |
+| `check_symbol_consistency` | **One-symbol-one-meaning**: symbol→meaning map from definition sentences; one symbol two meanings = error, one meaning several symbols = warning (Greek/LaTeX names normalized) |
+| `check_abstract_promises` | **Abstract-promise fulfillment**: promised objects (we propose / 本研究提出) must reappear in the body; zero term overlap triggers review (lenient threshold) |
+| `check_rigor_declarations` | **Methodological rigor declarations** (empirical/thesis): normality, multiple-comparison correction, power/sample size, randomization/blinding, missing data — presence-checked when triggered |
+| `check_anonymization` | **Blind-review anonymization** (needs `blind=true`): acknowledgments/funding, self-referring phrases, LaTeX uthor & frontmatter identity fields (error), local paths (info); masked lines exempt |
+| `check_units` | **Unit-style consistency**: same-family unit mixing (ml/mL, ug/µg, ℃/°C), µ dual codepoints & u-substitute in one family, digit-unit spacing style (warning) |
 | `check_style` | Style gate: AI-flavor words, colloquialisms, filler phrases, overclaims, long paragraphs/sentences (with line numbers) |
 | `check_punctuation` | Punctuation: CJK/Latin half-full-width mixing (code blocks ignored) |
 | `check_figures_tables` | Figure/table integrity: numbering gaps, caption ↔ in-text reference mismatch |
@@ -292,6 +302,7 @@ Exit codes: `0` ok · `1` gate failed (`--fail-on`) · `2` input error. Zero dep
 
 | Doc | Contents |
 |-----|----------|
+| [ARCHITECTURE](docs/ARCHITECTURE.md) | Gate-tower blueprint: nine-layer trust ladder, evidence gradient, tool admission test |
 | [CORPUS-BENCHMARK](docs/CORPUS-BENCHMARK.md) | Threshold calibration on 70 real papers; anti-overfitting rules |
 | [CAPABILITY-ASSESSMENT](docs/CAPABILITY-ASSESSMENT.md) | Measured capability, adversarial probes, upgrade paths |
 | [AI-DETECTION-LANDSCAPE](docs/AI-DETECTION-LANDSCAPE.md) | Academic & industry detection landscape; what to trust and what not to |
@@ -302,7 +313,7 @@ Exit codes: `0` ok · `1` gate failed (`--fail-on`) · `2` input error. Zero dep
 ## FAQ
 
 **Is this an AI-writing assistant?**
-It is the quality-gate layer *around* AI-assisted writing. The bundled skills sequence any LLM through the writing pipeline; ScholarSeed's own 41 tools never generate prose — they verify, gate, and archive evidence.
+It is the quality-gate layer *around* AI-assisted writing. The bundled skills sequence any LLM through the writing pipeline; ScholarSeed's own 51 tools never generate prose — they verify, gate, and archive evidence.
 
 **Is it an AI detector like GPTZero?**
 No. It ships a *style lint* (to polish your own draft) and *artifact forensics* (objective processing traces). It refuses to output a single "AI %" verdict — that number is scientifically indefensible, and recall on evasive text is unmeasured (see [Why ScholarSeed](#why-scholarseed)).
@@ -320,7 +331,7 @@ English and Chinese text are first-class (bilingual lexicons throughout); LaTeX 
 So it runs on any machine with Python — lab servers, student laptops, air-gapped review environments, CI containers — with nothing to break and nothing to audit beyond our code.
 
 **How do I trust the heuristics aren't tuned ad hoc?**
-Thresholds may only change with corpus-level regression re-runs (anti-overfitting rules in CORPUS-BENCHMARK.md), enforced through 237 unit tests and a release gate in CI on Python 3.9–3.13.
+Thresholds may only change with corpus-level regression re-runs (anti-overfitting rules in CORPUS-BENCHMARK.md), enforced through 306 unit tests and a release gate in CI on Python 3.9–3.13.
 
 ## Compatibility
 
@@ -337,7 +348,7 @@ Works with clients supporting Agent Plugins 1.0: ChatGPT, Codex, Cursor, GitHub 
 
 ```bash
 python scripts/validate_plugin.py        # plugin spec validation
-python -m unittest discover -s tests -v  # unit tests (237)
+python -m unittest discover -s tests -v  # unit tests (306)
 python benchmarks/adversarial_suite.py   # adversarial regression (RAID-style attacks)
 python scripts/release_gate.py           # release gate (validate + tests)
 ```

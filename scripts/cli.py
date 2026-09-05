@@ -96,6 +96,16 @@ CHECKERS = {
     "stats": lambda a: pt.check_stats(pt._md({"markdown": _read(a.file)})),
     "ai-signature": lambda a: pt.check_ai_signature(pt._md({"markdown": _read(a.file)})),
     "tamper": lambda a: pt.check_tamper_traces(pt._md({"markdown": _read(a.file)})),
+    "encoding": lambda a: pt.check_encoding(pt._md({"markdown": _read(a.file)})),
+    "ethics": lambda a: pt.check_ethics_statements(pt._md({"markdown": _read(a.file)}), a.genre),
+    "retraction": lambda a: pt.check_retraction(pt._md({"markdown": _read(a.file)})),
+    "claim-fit": lambda a: pt.check_claim_citation_fit(pt._md({"markdown": _read(a.file)})),
+    "version-mismatch": lambda a: pt.check_version_mismatch(pt._md({"markdown": _read(a.file)})),
+    "symbol": lambda a: pt.check_symbol_consistency(pt._md({"markdown": _read(a.file)})),
+    "abstract-promises": lambda a: pt.check_abstract_promises(pt._md({"markdown": _read(a.file)})),
+    "rigor": lambda a: pt.check_rigor_declarations(pt._md({"markdown": _read(a.file)}), a.genre),
+    "blind": lambda a: pt.check_anonymization(pt._md({"markdown": _read(a.file)}), blind=a.blind),
+    "units": lambda a: pt.check_units(pt._md({"markdown": _read(a.file)})),
 }
 
 
@@ -222,6 +232,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_genre(sp)
     sp.add_argument("--no-common", action="store_true", help="terms 检查不豁免通用缩写")
     sp.add_argument("--title", default="", help="title 检查直接传标题")
+    sp.add_argument("--blind", action="store_true", help="blind 检查启用双盲模式")
     sp.set_defaults(func=cmd_check)
 
     sp = sub.add_parser("citation", help="DOI/标题 → 规范引用条目（Crossref 真实核验）")
