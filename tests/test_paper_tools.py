@@ -1200,6 +1200,7 @@ class TestProtocolHandshake(unittest.TestCase):
                 "check_placeholders",
                 "check_references_completeness",
                 "check_references_recency",
+                "check_encoding",
             },
         )
 

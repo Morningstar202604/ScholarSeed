@@ -2854,6 +2854,62 @@ def check_links(markdown: str, live: bool = False) -> dict:
     return {"ok": not issues, "issues": issues, "checked": len(urls), "note": note}
 
 
+# 编码健康（门禁塔 L0 文件底座）：底座损坏时上层所有行号证据不可信。
+# 高置信 mojibake 特征：UTF-8 字节流被按 Latin-1 误读的双字节序列
+#（如 中→"ä¸­"、智能引号→"â€™"）；合法法文/德文重音字母后跟 ASCII 不命中。
+_MOJIBAKE_RE = re.compile(
+    r"Ã[©¨®°¼½¾±¸¹º»]"
+    r"|â€[™œšž]"
+    r"|[\u00e4\u00e5\u00e6\u00e7\u00e8\u00e9\u00ea\u00eb\u00ec\u00ed\u00ee\u00ef\u00f1\u00f2\u00f3\u00f4\u00f5\u00f6\u00f8\u00f9\u00fa\u00fb\u00fc\u00fd][\u0080-\u00bf\u00c0-\u00ff]",
+    re.UNICODE,
+)
+_CID_MARKER_RE = re.compile(r"\(cid:\d+\)")
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def check_encoding(markdown: str) -> dict:
+    """编码健康检查：U+FFFD 替换符、(cid:NN) PDF 提取残留、mojibake 乱码、控制字符、文中部 BOM。
+
+    底座层检查：替换符/CID 意味着文本在该处**不可读**（error 级），乱码/控制字符是
+    高置信损坏特征（warning 级）。只报告客观字符事实，不猜测成因归属。
+    """
+    if not markdown or not markdown.strip():
+        return {"ok": True, "issues": []}
+    starts = _line_starts(markdown)
+    issues = []
+
+    def _add(itype: str, severity: str, pos: int, detail: str) -> None:
+        issues.append({"type": itype, "severity": severity, "line": _pos_to_line(pos, starts), "detail": detail})
+
+    counts = {"replacement_char": 0, "cid_extracted": 0, "mojibake": 0, "control_char": 0, "bom_midfile": 0}
+    for m in re.finditer("\ufffd", markdown):
+        counts["replacement_char"] += 1
+        if counts["replacement_char"] <= 3:
+            _add("replacement_char", "error", m.start(), f"U+FFFD 替换符（该处字符已不可读，源文件编码损坏或转换丢字）×{counts['replacement_char']}")
+    for m in _CID_MARKER_RE.finditer(markdown):
+        counts["cid_extracted"] += 1
+        if counts["cid_extracted"] <= 3:
+            _add("cid_extracted", "error", m.start(), f"(cid:{m.group(0)[5:-1]}) PDF 提取残留——该处为字形编号而非真实文字（中文 CID 编码 PDF 常见），文本不可审计")
+    for m in _MOJIBAKE_RE.finditer(markdown):
+        counts["mojibake"] += 1
+        if counts["mojibake"] <= 5:
+            _add("mojibake", "warning", m.start(), f"疑似编码乱码 '{m.group(0)}'——UTF-8 被按 Latin-1 误读的特征序列，请核对源文件编码")
+    for m in _CONTROL_CHAR_RE.finditer(markdown):
+        counts["control_char"] += 1
+        if counts["control_char"] <= 3:
+            _add("control_char", "warning", m.start(), f"异常控制字符 U+{ord(m.group(0)):04X}——不可见但会破坏解析与排版")
+    for m in re.finditer("\ufeff", markdown):
+        if m.start() > 0:
+            counts["bom_midfile"] += 1
+            if counts["bom_midfile"] <= 2:
+                _add("bom_midfile", "info", m.start(), "文中部 BOM（U+FEFF）——拼接文件常见残留，建议清除")
+
+    total = sum(counts.values())
+    if total > len(issues):
+        issues.append({"type": "encoding_suppressed", "severity": "info", "detail": f"编码问题共 {total} 处，已按类型限量展示；计数见 summary"})
+    return {"ok": not issues, "issues": issues[:10], "summary": counts, "note": "替换符/CID 为 error（文本不可读），乱码/控制字符为 warning；只报告字符事实，不猜测成因"}
+
+
 # 样本量数字支持千分位逗号（"1,500 名参与者"），解析时去逗号——英文论文常见写法
 ZH_SAMPLE_PATTERN = re.compile(r"(样本量|样本数|样本|被试|受试者|参与者)\s*(?:量|数)?\s*[为约是=:]?\s*(\d{1,3}(?:,\d{3})+|\d{2,6})\s*([名份个人])?")
 EN_SAMPLE_PATTERN = re.compile(r"\b([Nn])\s*=\s*(\d{1,3}(?:,\d{3})+|\d{2,6})\b")
@@ -3455,6 +3511,7 @@ _GATE_REGISTRY = [
     ("references_completeness", "文献完整性（年份/来源/卷期页/类型标识/DOI 语法）", lambda md, genre: check_references_completeness(md)),
     ("references_recency", "文献时效性（陈旧综述信号）", lambda md, genre: check_references_recency(md)),
     ("placeholders", "占位符/未完成痕迹", lambda md, genre: check_placeholders(md)),
+    ("encoding", "文件底座：编码损坏/乱码/CID 残留", lambda md, genre: check_encoding(md)),
     ("links", "链接可信（离线语法与虚假特征）", lambda md, genre: check_links(md)),
     ("vague_attribution", "模糊归因（无引注的'研究表明/专家认为'）", lambda md, genre: check_vague_attribution(md)),
     ("numbers", "数字一致性（口径/加和/百分比）", lambda md, genre: check_numbers(md)),
@@ -4053,6 +4110,11 @@ TOOLS = [
         "inputSchema": {"type": "object", "properties": {"markdown": {"type": "string"}}, "required": ["markdown"]},
     },
     {
+        "name": "check_encoding",
+        "description": "编码健康检查（文件底座层）：U+FFFD 替换符与 (cid:NN) PDF 提取残留（文本不可读，error 级）、UTF-8 被按 Latin-1 误读的乱码特征、异常控制字符、文中部 BOM。底座损坏时上层所有行号证据不可信——交付前必须清零。",
+        "inputSchema": {"type": "object", "properties": {"markdown": {"type": "string"}}, "required": ["markdown"]},
+    },
+    {
         "name": "audit_delta",
         "description": "修复增量对比：对修改前后两版跑同一门禁束，输出 已修复/新引入/仍存在 的差集与净改善判定——智能体每轮修改后调用一次即可验证改动质量，避免按下葫芦浮起瓢。",
         "inputSchema": {
@@ -4116,6 +4178,7 @@ _TOOL_DESC_EN = {
     "check_references_recency": "Literature-recency signal: with four or more dated entries, reports median reference age; flags when all or 70%+ of references are older than 10 years as a stale-review signal.",
     "check_placeholders": "Placeholder and unfinished-work traces: TODO, FIXME, ???, [citation needed], and Chinese equivalents — must be zero before delivery.",
     "check_links": "Link trustworthiness: offline checks for placeholder domains (example.com/localhost), reserved/invalid TLDs, and hostless URLs; with live=true, HEAD-verifies each URL (404/410 dead links; blocked requests reported honestly as unverifiable).",
+    "check_encoding": "Encoding health check (document substrate): U+FFFD replacement chars and (cid:N) PDF-extraction artifacts (unreadable text, error-level), UTF-8-read-as-Latin-1 mojibake signatures, stray control characters, and mid-file BOM. A broken substrate invalidates every line-numbered finding above it.",
     "audit_delta": "Fix-delta comparison: runs the same gate bundle on before/after manuscripts and reports fixed vs introduced vs persisted findings with a net-improvement verdict, so every agent edit round is verified.",
 }
 
@@ -4160,6 +4223,7 @@ _TOOL_DESC_JA = {
     "check_references_recency": "文献の鮮度：特定可能な年が4件以上のとき、中央値文献年齢と古い割合を報告し、陳腐化シグナルを提示。",
     "check_placeholders": "プレースホルダ痕跡：TODO、FIXME、???、[citation needed]、待补充など、提出前に必ず除去。",
     "check_links": "リンク信頼性：プレースホルダドメイン・無効TLD・ホストなしURLをオフライン検査；live=trueでHEAD検証（404/410は死リンク）。",
+    "check_encoding": "エンコーディング健全性検査（文書基盤）：U+FFFD置換文字と(cid:N) PDF抽出残骸（読めない文字、error）、UTF-8をLatin-1誤読した文字化けシグネチャ、異常制御文字、文中BOMを検出。基盤が壊れると行番号証拠は無効化される。",
     "audit_delta": "修正差分比較：修正前後の原稿に同一ゲート束を実行し、解決/新規/残存を差集合で報告し、純改善判定を返す。",
 }
 
@@ -4355,6 +4419,8 @@ def _call_tool(name: str, arguments: dict) -> dict:
         return _result_text(json.dumps(check_placeholders(_md(args)), ensure_ascii=False))
     if name == "check_links":
         return _result_text(json.dumps(check_links(_md(args), bool(args.get("live", False))), ensure_ascii=False))
+    if name == "check_encoding":
+        return _result_text(json.dumps(check_encoding(_md(args)), ensure_ascii=False))
     if name == "audit_delta":
         return _result_text(
             audit_delta(

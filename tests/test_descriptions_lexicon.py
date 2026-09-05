@@ -80,6 +80,7 @@ class TestTrilingualDescriptions(unittest.TestCase):
                 "check_placeholders",
                 "check_references_completeness",
                 "check_references_recency",
+                "check_encoding",
         }
         self.assertEqual({t["name"] for t in paper_tools.TOOLS}, expected)
 

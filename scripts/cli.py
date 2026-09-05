@@ -96,6 +96,7 @@ CHECKERS = {
     "stats": lambda a: pt.check_stats(pt._md({"markdown": _read(a.file)})),
     "ai-signature": lambda a: pt.check_ai_signature(pt._md({"markdown": _read(a.file)})),
     "tamper": lambda a: pt.check_tamper_traces(pt._md({"markdown": _read(a.file)})),
+    "encoding": lambda a: pt.check_encoding(pt._md({"markdown": _read(a.file)})),
 }
 
 
