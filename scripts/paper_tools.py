@@ -18,9 +18,21 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zlib
-from bisect import bisect_right
 from collections import Counter
 from pathlib import Path
+
+from paper_ir import (
+    _blank_fences,
+    _count_cjk,
+    _count_words_en,
+    _extract_abstract,
+    _find_pattern,
+    _find_reference_heading,
+    _line_starts,
+    _pos_to_line,
+    _split_body_references,
+    _split_sentences,
+)
 
 SERVER_NAME = "paper-tools"
 
@@ -1477,58 +1489,9 @@ OVERCLAIM_WORDS_EN = ["prove that", "guarantee", "perfectly", "completely solves
 BUZZWORDS_ZH = ["赋能", "抓手", "底层逻辑", "颗粒度"]  # 互联网黑话，学术语境应为具体表述
 
 
-def _line_starts(text: str) -> list:
-    return [0] + [m.end() for m in re.finditer(r"\n", text)]
-
-
-def _pos_to_line(pos: int, starts: list) -> int:
-    return bisect_right(starts, pos)
-
-
-def _find_pattern(text: str, pattern: str, flags: int = 0) -> list:
-    """返回 [(行号, 命中片段)]，供各检查器复用。"""
-    starts = _line_starts(text)
-    out = []
-    for m in re.finditer(pattern, text, flags):
-        line = _pos_to_line(m.start(), starts)
-        snippet = m.group(0).strip()
-        out.append((line, snippet))
-    return out
-
-
-def _blank_fences(text: str) -> str:
-    """将 ``` 围栏代码块内容置空但保留换行数量，使行号映射不漂移。"""
-
-    def _repl(m):
-        return "\n" * m.group(0).count("\n")
-
-    return re.sub(r"```.*?```", _repl, text, flags=re.S)
-
-
-def _count_cjk(text: str) -> int:
-    """统计中文字符数（统一 CJK 区间，避免各处重写 [一-鿿] 字面量）。"""
-    return len(re.findall(r"[\u4e00-\u9fff]", text))
-
-
-def _count_words_en(text: str) -> int:
-    """统计拉丁词数（统一正则，避免各处重写 [A-Za-z]+ 字面量）。"""
-    return len(re.findall(r"[A-Za-z]+", text))
-
-
-def _find_reference_heading(markdown: str) -> "re.Match | None":
-    """定位参考文献小节标题（H1-H3，支持中英文），集中复用避免三处重复正则。"""
-    return re.search(r"^#{1,3}\s*(?:References|参考文献)\s*$", markdown, flags=re.M)
-
-
-def _split_sentences(text: str, keep_punct: bool = False) -> list:
-    """按中英文句末标点切分正文；keep_punct=True 保留句末标点（check_style 需展示片段）。"""
-    if keep_punct:
-        parts = re.split(r"(?<=[。！？.!?])\s*", text)
-    else:
-        parts = re.split(r"[。！？.!?]\s*", text)
-    return [p for p in parts if p.strip()]
-
-
+# _line_starts/_pos_to_line/_find_pattern/_blank_fences/_count_cjk/_count_words_en/
+# _find_reference_heading/_split_sentences/_split_body_references/_extract_abstract
+# 已集中迁入 paper_ir.py（docs/ARCHITECTURE.md：一次解析、全塔共享），此处导入复用。
 def check_style(markdown: str) -> dict:
     """文风检查：AI 高频词、口语化、凑字数短语、过度声明词、超长段落与句子。
 
@@ -1765,14 +1728,6 @@ def check_references_format(markdown: str, current_year: int | None = None) -> d
     return {"ok": not issues, "issues": issues, "entries": len(entries), "styles": {k: len(v) for k, v in styles.items()}}
 
 
-def _split_body_references(markdown: str) -> tuple:
-    """按参考文献标题切分为（正文, 文献段）。无文献标题时文献段为空。"""
-    m = _find_reference_heading(markdown)
-    if not m:
-        return markdown, ""
-    return markdown[: m.start()], markdown[m.end() :]
-
-
 def _expand_num_citation(token: str) -> set:
     """展开数字引用标记：'2'->{2}；'2,5'->{2,5}；'2-5'->{2,3,4,5}。"""
     nums = set()
@@ -1949,22 +1904,6 @@ ABSTRACT_ELEMENTS = [
     ("结果", r"结果|表明|显示|发现|results?|findings?|(?:shows?|indicates?|demonstrates?|reveals?) that"),
     ("结论", r"结论|意义|启示|贡献|implicat|contribut|conclusion|suggest(?:s|ing)?|impl(?:y|ies)"),
 ]
-
-
-def _extract_abstract(markdown: str) -> str:
-    """定位摘要段：优先标题级（## 摘要），其次加粗/标签行（**摘要**：…），取到下一个标题为止。"""
-    hm = re.search(r"^#{1,3}\s*(?:摘要|abstract)\s*$", markdown, flags=re.M | re.I)
-    if hm:
-        rest = markdown[hm.end() :]
-        stop = re.search(r"^#{1,3}\s*", rest, flags=re.M)
-        return (rest[: stop.start()] if stop else rest).strip()
-    lm = re.search(r"^(?:\*\*)?\s*(?:摘要|abstract)(?:\*\*)?\s*[:：]\s*(.*)$", markdown, flags=re.M | re.I)
-    if lm:
-        para_start = lm.end() - len(lm.group(1))
-        rest = markdown[para_start:]
-        stop = re.search(r"^#{1,3}\s*|\n\s*\n", rest.lstrip("\n"))
-        return (rest[: stop.start()] if stop else rest).strip()
-    return ""
 
 
 def check_abstract(markdown: str, genre: str = "empirical") -> dict:
