@@ -1,8 +1,8 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "scholarseed",
-  "version": "0.6.0",
-  "description": "论文交付质检引擎与写作流水线：实时引文核验(Crossref/Semantic Scholar/OpenAlex, A/B/C 分级)、批量文献核验门禁、规范引用条目生成(APA/GB-T/IEEE/MLA/Chicago/BibTeX)、正文引用双向核对、统计红线、数字一致性(含互斥分桶加和校验)、结构/图表/术语/重复检查、AI 腔文风自检与文本残留取证。五个技能把 41 个确定性工具串成写作流水线，每道门禁输出随稿留档。纯 Python 标准库，零依赖；与 AgentSeed 组成防幻觉矩阵",
+  "version": "0.7.0",
+  "description": "论文交付质检引擎与写作流水线：实时引文核验(Crossref/Semantic Scholar/OpenAlex, A/B/C 分级)、批量文献核验门禁、规范引用条目生成(APA/GB-T/IEEE/MLA/Chicago/BibTeX)、正文引用双向核对、统计红线、数字一致性(含互斥分桶加和校验)、结构/图表/术语/重复检查、AI 腔文风自检与文本残留取证。五个技能把 51 个确定性工具串成写作流水线，每道门禁输出随稿留档。纯 Python 标准库，零依赖；与 AgentSeed 组成防幻觉矩阵",
   "author": {
     "name": "Morningstar202604",
     "url": "https://github.com/Morningstar202604"

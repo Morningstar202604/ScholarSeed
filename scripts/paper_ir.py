@@ -23,18 +23,18 @@ import re
 from bisect import bisect_right
 
 __all__ = [
-    "parse_paper_ir",
-    "iter_sentences",
-    "_line_starts",
-    "_pos_to_line",
-    "_find_pattern",
     "_blank_fences",
     "_count_cjk",
     "_count_words_en",
-    "_find_reference_heading",
-    "_split_sentences",
-    "_split_body_references",
     "_extract_abstract",
+    "_find_pattern",
+    "_find_reference_heading",
+    "_line_starts",
+    "_pos_to_line",
+    "_split_body_references",
+    "_split_sentences",
+    "iter_sentences",
+    "parse_paper_ir",
 ]
 
 

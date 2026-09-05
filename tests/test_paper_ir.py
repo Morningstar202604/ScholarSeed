@@ -13,7 +13,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 import paper_ir
 import paper_tools
 
-
 SAMPLE = """---
 title: Test Paper
 ---

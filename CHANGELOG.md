@@ -4,6 +4,27 @@
 
 > 本文件自 v0.1.0 起重新开始计数：仓库于 2026-08-30 以"论文交付质检引擎与写作流水线"定位重置发布，此前的 v1.x 开发线（2026-08-19 ~ 2026-08-26）已完成其历史使命，不再在版本号中延续。v0.1.0 ~ v0.6.0 为同日连续发布。
 
+## [0.7.0] - 2026-09-05
+
+### Added
+
+- **门禁塔架构（docs/ARCHITECTURE.md）**：把"生成与验证分离"哲学向下推导为九层信任塔——P 合法前提 / L0 文件底座 / L1 存在 / L2 契合 / L3 一致 / L4 方法 / L5 规范 / L6 表达 + 取证支柱 + 裁决引擎；证据等级随层递减、门禁资格跟着证据等级走。立**新工具准入测试**（归属层/失败类型/证据等级/门禁资格四问），答不出归属的工具不再准入——治理工具清单碎片化生长。
+- **PaperIR 文档中间表示（scripts/paper_ir.py，L0 地基）**：文档只解析一次、全塔共享；共享行号辅助函数集中迁入（`_line_starts`/`_blank_fences`/`_split_sentences` 等名称语义不变），`iter_sentences` 返回行号（行号是全项目证据通货，`_blank_fences` 保行数不保字符位置）。
+- **10 个新工具（41→51），逐层落地**：
+  - P：`check_ethics_statements` 合法前提声明——伦理/知情同意、利益冲突、AI 使用披露（AIGC 合规）、数据可用性声明的存在性；涉人研究缺伦理声明为 error（桌拒红线），其余 warning。工具查"写了没有"，真伪归人。
+  - L0：`check_encoding` 编码健康——U+FFFD 替换符与 (cid:NN) PDF 提取残留（error，文本不可读）、UTF-8 被 Latin-1 误读的乱码特征、异常控制字符、文中部 BOM。底座损坏时上层所有行号证据不可信。
+  - L1：`check_retraction` 撤稿筛查（联网）——Crossref update-to / relation.is-retracted-by 与撤稿声明标题特征；引用撤稿成果=error（诚信硬伤）；网络失败按 X 级纪律 unverifiable（info）永不触发门禁。
+  - L2：`check_claim_citation_fit` 引证契合（联网+缓存）——强主张句与所引文献标题/摘要的词汇重叠率过低时提示人工复核；`check_version_mismatch` 预印本-正式版错配（联网）——arXiv 条目已有正式发表版时提示更新。语义级"源文是否支持主张"明确不做（需模型推理）。
+  - L3：`check_symbol_consistency` 一符一义——定义句建符号→含义映射，同一符号两种低相似含义=error，同一含义多符号=warning（equations-symbols.md 代码化）；`check_abstract_promises` 摘要承诺兑现——承诺对象在正文零词元命中才告警（宽松阈值防误报）。
+  - L4：`check_rigor_declarations` 方法严谨声明完备性——触发场景（t 检验/ANOVA/回归/声称 RCT/发放问卷）核对声明在场：正态性、多重比较校正、效能/样本量、随机盲法、缺失数据；查"声明了没有"，不判"方法选对了没有"。
+  - L5：`check_anonymization` 盲审匿名化（需显式 blind=true）——致谢/基金、自引指涉、LaTeX uthor 与 frontmatter 身份字段（error）、本机路径（info），"已隐去/masked"行豁免；`check_units` 计量单位写法一致性——同族单位混用（ml/mL、ug/µg、℃/°C），µ 的 U+00B5/U+03BC 两码位归同族。
+- **gate_suite 离线门禁 19→24 道**（新增 encoding/ethics/symbol/abstract_promises/rigor/units）；`next_actions` 三条计划插入资格声明/撤稿筛查/契合与版本步骤；paper-writing 技能阶段 6/7/8 接线全部新门禁（并修复"残留取证"条目重复）。
+- 新增 69 个回归测试（总数 237→306）。
+
+### Changed
+
+- README（en/zh）工具计数 41→51、门禁数与测试数同步；文档索引新增 ARCHITECTURE.md。
+
 ## [0.6.0] - 2026-08-30
 
 ### Added
