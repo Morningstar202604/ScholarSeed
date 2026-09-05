@@ -264,11 +264,11 @@ LaTeX 支持：word_count / check_structure / proofread / audit_paper 接受 `so
 
 无需 pip、无需虚拟环境、无编译扩展——能跑 `python` 就能跑 ScholarSeed。
 
-### 仓库与镜像
+### 仓库
 
 | 平台 | 地址 | 说明 |
 |------|------|------|
-| GitHub（主仓库） | <https://github.com/Morningstar202604/ScholarSeed> | 主线开发；在此提 Issue/PR |
+| GitHub | <https://github.com/Morningstar202604/ScholarSeed> | 主线开发；在此提 Issue/PR |
 
 ## CLI（无需智能体）
 
@@ -339,7 +339,7 @@ python benchmarks/adversarial_suite.py   # 对抗回归（RAID 风格攻击）
 python scripts/release_gate.py           # 发布门禁（校验 + 测试）
 ```
 
-CI 经 GitHub Actions 在 Python 3.9–3.13 上跑发布门禁（跑在 GitHub 镜像；GitCode 为主线开发仓库，无 runner——一条流水线，无平台特有副本可漂移）。
+CI 经 GitHub Actions 在 Python 3.9–3.13 上跑发布门禁（push 与 PR 都跑，GitHub 为唯一平台——一条流水线，无平台特有副本可漂移）。
 
 ## 安全
 

@@ -267,11 +267,11 @@ Gate thresholds calibrated on **70 arXiv papers across 9 disciplines**: all 70 s
 
 No pip install, no virtualenv, no compiled extensions — if `python` runs, ScholarSeed runs.
 
-### Repositories & Mirrors
+### Repository
 
 | Platform | URL | Notes |
 |----------|-----|-------|
-| GitHub (primary) | <https://github.com/Morningstar202604/ScholarSeed> | Mainline development; file Issues/PRs here |
+| GitHub | <https://github.com/Morningstar202604/ScholarSeed> | Mainline development; file Issues/PRs here |
 
 ## CLI (no agent required)
 
@@ -342,7 +342,7 @@ python benchmarks/adversarial_suite.py   # adversarial regression (RAID-style at
 python scripts/release_gate.py           # release gate (validate + tests)
 ```
 
-CI runs the release gate on Python 3.9–3.13 via GitHub Actions (on the GitHub mirror; GitCode is mainline development without runners — one pipeline, no platform-specific duplicates to drift or break).
+CI runs the release gate on Python 3.9–3.13 via GitHub Actions, on both mainline pushes and pull requests — one pipeline, no platform-specific duplicates to drift or break.
 
 ## Security
 

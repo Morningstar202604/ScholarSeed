@@ -1,9 +1,8 @@
 name: CI
 
 # Single, necessary automation: lint + release gate across supported Pythons.
-# Runs on the GitHub mirror (github.com/Morningstar202604/ScholarSeed); GitCode/Gitee
-# are read-only mirrors without runners, so no platform-specific workflow
-# duplicates are maintained (see docs/VERSIONING.md release discipline).
+# Runs on GitHub (github.com/Morningstar202604/ScholarSeed) for both mainline
+# pushes and pull requests — one pipeline, no platform-specific copies.
 #
 # Deliberately avoids pipx: it resolves the system interpreter rather than
 # the setup-python one (known cross-runner pitfall). `python -m pip` +
