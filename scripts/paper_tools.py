@@ -2954,6 +2954,106 @@ def check_ethics_statements(markdown: str, genre: str = "empirical") -> dict:
     return {"ok": not issues, "issues": issues, "summary": summary, "note": "声明存在性检查：工具查'写了没有'，真伪归人；涉人研究缺伦理声明为 error"}
 
 
+# L1 存在层：撤稿筛查。撤稿是 Crossref/S2 记录的客观事实，但基础设施失败
+# 沿用 X 级纪律——无法核验永不触发门禁，只有"确认被撤稿"才是 error。
+_RETRACT_NOTICE_TITLE_RE = re.compile(r"retrac|withdrawn|撤稿", re.I)
+
+
+def _retraction_probe(doi: str = "", title: str = "") -> dict:
+    """查询单条文献的撤稿状态。
+
+    信号源（命中任一即判定）：Crossref 的 update-to（type 含 retraction）、
+    relation.is-retracted-by、标题本身为撤稿声明（Retraction Notice）。
+    返回 {status: ok|retracted|notice|unverifiable|unmatched, ...}。
+    """
+    raw = None
+    if doi.strip():
+        url = f"{CROSSREF_API}/{urllib.parse.quote(doi.strip(), safe='')}"
+        try:
+            raw = _fetch_json(url, headers=_crossref_headers()).get("message", {})
+        except urllib.error.HTTPError as e:
+            if e.code in RETRYABLE_HTTP_CODES:
+                return {"status": "unverifiable", "note": f"Crossref 暂不可达 (HTTP {e.code})"}
+            return {"status": "unverifiable", "note": f"HTTP {e.code}: {e.reason}"}
+        except Exception as e:
+            return {"status": "unverifiable", "note": f"网络不可达：{e}"}
+    else:
+        matched = _crossref_by_title(title)
+        resolved_doi = str(matched.get("doi", "") or "")
+        if not matched.get("verified") or not resolved_doi:
+            return {"status": "unmatched", "note": str(matched.get("note", "未命中，跳过撤稿核查"))}
+        url = f"{CROSSREF_API}/{urllib.parse.quote(resolved_doi, safe='')}"
+        try:
+            raw = _fetch_json(url, headers=_crossref_headers()).get("message", {})
+        except Exception as e:
+            return {"status": "unverifiable", "note": f"网络不可达：{e}"}
+        doi = resolved_doi
+    title0 = ((raw.get("title") or [""]) or [""])[0]
+    relation = raw.get("relation") or {}
+    update_to = raw.get("update-to") or []
+    retract_updates = [u for u in update_to if "retract" in str(u.get("type", "")).lower()]
+    evidence = []
+    if relation.get("is-retracted-by"):
+        evidence.append(f"relation.is-retracted-by → {relation['is-retracted-by']}")
+    if retract_updates:
+        evidence.append(f"update-to(type=retraction) → {[u.get('DOI') for u in retract_updates]}")
+    if evidence:
+        return {"status": "retracted", "doi": doi, "title": title0, "evidence": evidence}
+    if _RETRACT_NOTICE_TITLE_RE.search(title0):
+        return {"status": "notice", "doi": doi, "title": title0, "note": "该条目本身是撤稿声明（Retraction Notice）——综述引用属正常，实证引用请人工确认意图"}
+    return {"status": "ok", "doi": doi, "title": title0}
+
+
+def check_retraction(markdown: str, max_entries: int = 30) -> dict:
+    """撤稿筛查（L1 存在层，联网）：逐条检查被引文献是否已被撤稿。
+
+    引用已撤稿文献是学术诚信硬伤——稿件引用的结论若来自被撤成果，审稿人
+    与编辑有权直接质疑。判定依据 Crossref 记录（update-to / relation /
+    撤稿声明标题），属外部 API 事实而非启发式。基础设施失败按 X 级纪律
+    记为 unverifiable（info），永不触发门禁。
+    """
+    if not markdown or not markdown.strip():
+        return {"ok": True, "issues": []}
+    entries = _extract_reference_entries(markdown)
+    if not entries:
+        return {"ok": True, "issues": [], "summary": {"note": "未识别到含年份的文献条目"}, "checked": 0}
+    truncated = len(entries) > max_entries
+    issues = []
+    stats = {"checked": 0, "retracted": 0, "notice": 0, "unverifiable": 0, "unmatched": 0}
+    for idx, entry in enumerate(entries[:max_entries], 1):
+        doi_m = DOI_PATTERN.search(entry)
+        title_hint = _entry_title(entry)
+        if not doi_m and not _title_hint_long_enough(title_hint):
+            stats["unmatched"] += 1
+            continue
+        try:
+            probe = _retraction_probe(doi=_clean_doi(doi_m.group(0)) if doi_m else "", title=title_hint)
+        except Exception as e:
+            probe = {"status": "unverifiable", "note": f"查询异常：{e}"}
+        status = probe.get("status", "unverifiable")
+        loc = f"第 {idx} 条"
+        entry_short = entry[:44].replace("\n", " ")
+        if status == "retracted":
+            stats["retracted"] += 1
+            issues.append({"type": "cited_retracted_work", "severity": "error", "line": idx, "detail": f"{loc}「{entry_short}…」已被撤稿（{'；'.join(probe.get('evidence', []))}）——引用撤稿成果是学术诚信硬伤，必须替换或删除"})
+        elif status == "notice":
+            stats["notice"] += 1
+            issues.append({"type": "cited_retraction_notice", "severity": "info", "line": idx, "detail": f"{loc}「{entry_short}…」本身是撤稿声明，请确认引用意图"})
+            stats["checked"] += 1
+            continue
+        elif status == "unverifiable":
+            stats["unverifiable"] += 1
+            issues.append({"type": "retraction_unverifiable", "severity": "info", "line": idx, "detail": f"{loc}撤稿状态无法核验（{probe.get('note', '')}）——不计入门禁失败"})
+            stats["checked"] += 1
+            continue
+        elif status == "unmatched":
+            stats["unmatched"] += 1
+            continue
+        stats["checked"] += 1
+    note = f"已核 {stats['checked']}/{len(entries)} 条" + (f"（超过上限仅查前 {max_entries} 条）" if truncated else "")
+    return {"ok": not any(i["severity"] == "error" for i in issues), "issues": issues, "summary": stats, "note": note + "；X 级纪律：无法核验永不触发门禁"}
+
+
 # 样本量数字支持千分位逗号（"1,500 名参与者"），解析时去逗号——英文论文常见写法
 ZH_SAMPLE_PATTERN = re.compile(r"(样本量|样本数|样本|被试|受试者|参与者)\s*(?:量|数)?\s*[为约是=:]?\s*(\d{1,3}(?:,\d{3})+|\d{2,6})\s*([名份个人])?")
 EN_SAMPLE_PATTERN = re.compile(r"\b([Nn])\s*=\s*(\d{1,3}(?:,\d{3})+|\d{2,6})\b")
@@ -4172,6 +4272,18 @@ TOOLS = [
         },
     },
     {
+        "name": "check_retraction",
+        "description": "撤稿筛查（联网，L1 存在层）：逐条查被引文献是否已被撤稿——Crossref update-to/relation.is-retracted-by 记录与撤稿声明标题特征，属外部 API 事实。引用撤稿成果为 error（诚信硬伤）；网络失败按 X 级纪律记 unverifiable（info），永不触发门禁。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "markdown": {"type": "string", "description": "含 References/参考文献 段的论文全文"},
+                "max_entries": {"type": "integer", "description": "单次核查条数上限，默认 30", "default": 30},
+            },
+            "required": ["markdown"],
+        },
+    },
+    {
         "name": "audit_delta",
         "description": "修复增量对比：对修改前后两版跑同一门禁束，输出 已修复/新引入/仍存在 的差集与净改善判定——智能体每轮修改后调用一次即可验证改动质量，避免按下葫芦浮起瓢。",
         "inputSchema": {
@@ -4237,6 +4349,7 @@ _TOOL_DESC_EN = {
     "check_links": "Link trustworthiness: offline checks for placeholder domains (example.com/localhost), reserved/invalid TLDs, and hostless URLs; with live=true, HEAD-verifies each URL (404/410 dead links; blocked requests reported honestly as unverifiable).",
     "check_encoding": "Encoding health check (document substrate): U+FFFD replacement chars and (cid:N) PDF-extraction artifacts (unreadable text, error-level), UTF-8-read-as-Latin-1 mojibake signatures, stray control characters, and mid-file BOM. A broken substrate invalidates every line-numbered finding above it.",
     "check_ethics_statements": "Legitimacy-precondition check (gate tower layer P): presence of ethics approval / informed consent, conflict-of-interest disclosure, AI-use disclosure (AIGC compliance), and data availability statements. Missing ethics with human subjects in the text is an error (desk-reject redline); other absences are warnings. Presence only — statement truth is the authors' responsibility.",
+    "check_retraction": "Retraction screening (live, gate tower layer L1): checks each cited work against Crossref update-to / relation.is-retracted-by records and retraction-notice title signatures — external API facts, not heuristics. Citing a retracted work is an error (integrity hardline); network failures are reported as unverifiable (info) per the X-grade discipline and never trip the gate.",
     "audit_delta": "Fix-delta comparison: runs the same gate bundle on before/after manuscripts and reports fixed vs introduced vs persisted findings with a net-improvement verdict, so every agent edit round is verified.",
 }
 
@@ -4283,6 +4396,7 @@ _TOOL_DESC_JA = {
     "check_links": "リンク信頼性：プレースホルダドメイン・無効TLD・ホストなしURLをオフライン検査；live=trueでHEAD検証（404/410は死リンク）。",
     "check_encoding": "エンコーディング健全性検査（文書基盤）：U+FFFD置換文字と(cid:N) PDF抽出残骸（読めない文字、error）、UTF-8をLatin-1誤読した文字化けシグネチャ、異常制御文字、文中BOMを検出。基盤が壊れると行番号証拠は無効化される。",
     "check_ethics_statements": "適法性前提検査（ゲート塔P層）：倫理承認/インフォームド・コンセント、利益相反開示、AI利用開示（AIGC準拠）、データ利用可能性声明の存在確認。人間被験者に言及しつつ倫理声明が欠落の場合はerror（デスクリジェクト級）、その他の欠落はwarning。存在確認のみで真偽は著者の責任。",
+    "check_retraction": "撤稿スクリーニング（オンライン、ゲート塔L1層）：Crossref の update-to / relation.is-retracted-by 記録と撤稿声明タイトルにより、引用文献の撤稿状態を確認（外部APIの事実）。撤稿済み文献の引用はerror（誠信の要警戒事項）、ネットワーク失敗はX級規律に従い unverifiable（info）としてゲートを発動しない。",
     "audit_delta": "修正差分比較：修正前後の原稿に同一ゲート束を実行し、解決/新規/残存を差集合で報告し、純改善判定を返す。",
 }
 
@@ -4482,6 +4596,8 @@ def _call_tool(name: str, arguments: dict) -> dict:
         return _result_text(json.dumps(check_encoding(_md(args)), ensure_ascii=False))
     if name == "check_ethics_statements":
         return _result_text(json.dumps(check_ethics_statements(_md(args), str(args.get("genre", "empirical"))), ensure_ascii=False))
+    if name == "check_retraction":
+        return _result_text(json.dumps(check_retraction(_md(args), int(args.get("max_entries", 30))), ensure_ascii=False))
     if name == "audit_delta":
         return _result_text(
             audit_delta(

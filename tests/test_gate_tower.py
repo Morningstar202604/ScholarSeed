@@ -9,6 +9,7 @@ import os
 import sys
 import unittest
 from unittest import mock
+import urllib.error
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
@@ -115,6 +116,79 @@ class TestCheckEthicsStatements(unittest.TestCase):
         out = json.loads(paper_tools.gate_suite(self.EMPIRICAL_DIRTY, gates="ethics", genre="empirical"))
         self.assertFalse(out["pass"])
         self.assertEqual(out["totalErrors"], 1)
+
+
+def _crossref_work(doi_tail: str, **fields) -> dict:
+    """构造 Crossref works/{doi} 响应，字段可覆盖。"""
+    msg = {"title": ["Some paper title"], "DOI": f"10.1234/{doi_tail}"}
+    msg.update(fields)
+    return {"status": "ok", "message": msg}
+
+
+class TestCheckRetraction(unittest.TestCase):
+    """L1 存在层：撤稿筛查。API 事实判 error；网络失败按 X 级纪律不拦门禁。"""
+
+    REFS = (
+        "# T\n\n正文。\n\n## References\n\n"
+        "[1] Bad, A. (2020). A retracted study. Nature. https://doi.org/10.1234/retracted\n"
+        "[2] Good, B. (2021). A clean study. Science. https://doi.org/10.1234/clean\n"
+        "[3] Notice, C. (2019). Retraction notice: A retracted study. Nature. https://doi.org/10.1234/notice\n"
+        "[4] Lost, D. (2020). An unreachable entry. J. https://doi.org/10.1234/lost\n"
+    )
+
+    def _mock_fetch(self, url, headers=None, retries=1):
+        if "retracted" in url:
+            return _crossref_work("retracted", **{"update-to": [{"DOI": "10.1234/retraction-notice", "type": "retraction"}]})
+        if "clean" in url:
+            return _crossref_work("clean")
+        if "notice" in url:
+            return _crossref_work("notice", title=["Retraction notice: A retracted study"])
+        raise urllib.error.URLError("connection refused")
+
+    def test_retracted_is_error(self):
+        with mock.patch.object(paper_tools, "_fetch_json", side_effect=self._mock_fetch):
+            r = paper_tools.check_retraction(self.REFS)
+        hit = [i for i in r["issues"] if i["type"] == "cited_retracted_work"]
+        self.assertEqual(len(hit), 1)
+        self.assertEqual(hit[0]["severity"], "error")
+        self.assertIn("retraction-notice", hit[0]["detail"])
+        self.assertFalse(r["ok"])
+
+    def test_relation_is_retracted_by_signal(self):
+        with mock.patch.object(paper_tools, "_fetch_json", return_value=_crossref_work("x", relation={"is-retracted-by": [{"DOI": "10.1/notice"}]})):
+            probe = paper_tools._retraction_probe(doi="10.1234/x")
+        self.assertEqual(probe["status"], "retracted")
+
+    def test_clean_reference_passes(self):
+        with mock.patch.object(paper_tools, "_fetch_json", side_effect=self._mock_fetch):
+            r = paper_tools.check_retraction(self.REFS)
+        self.assertEqual(r["summary"]["retracted"], 1)
+        self.assertEqual(r["summary"]["notice"], 1)
+        self.assertTrue(all(i["type"] != "cited_retracted_work" or "第 2 条" not in i["detail"] for i in r["issues"]))
+
+    def test_unverifiable_never_blocks(self):
+        with mock.patch.object(paper_tools, "_fetch_json", side_effect=self._mock_fetch):
+            r = paper_tools.check_retraction(self.REFS)
+        unver = [i for i in r["issues"] if i["type"] == "retraction_unverifiable"]
+        self.assertEqual(len(unver), 1)
+        self.assertEqual(unver[0]["severity"], "info")
+
+    def test_title_fallback_flow(self):
+        md = "# T\n\n## References\n\n[1] Deep Learning, I. (2021). A very unique paper on retraction screening. Nature.\n"
+
+        def fake(url, headers=None, retries=1):
+            if "query.title" in url:
+                return {"message": {"items": [{"title": ["A very unique paper on retraction screening"], "DOI": "10.1234/matched"}]}}
+            return _crossref_work("matched", **{"update-to": [{"DOI": "10.1234/ret", "type": "retraction"}]})
+
+        with mock.patch.object(paper_tools, "_fetch_json", side_effect=fake):
+            r = paper_tools.check_retraction(md)
+        hit = [i for i in r["issues"] if i["type"] == "cited_retracted_work"]
+        self.assertEqual(len(hit), 1)
+
+    def test_empty_and_no_entries(self):
+        self.assertTrue(paper_tools.check_retraction("")["ok"])
+        self.assertEqual(paper_tools.check_retraction("# T\n\n没有文献段。")["checked"], 0)
 
 
 if __name__ == "__main__":

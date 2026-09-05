@@ -98,6 +98,7 @@ CHECKERS = {
     "tamper": lambda a: pt.check_tamper_traces(pt._md({"markdown": _read(a.file)})),
     "encoding": lambda a: pt.check_encoding(pt._md({"markdown": _read(a.file)})),
     "ethics": lambda a: pt.check_ethics_statements(pt._md({"markdown": _read(a.file)}), a.genre),
+    "retraction": lambda a: pt.check_retraction(pt._md({"markdown": _read(a.file)})),
 }
 
 

@@ -1202,6 +1202,7 @@ class TestProtocolHandshake(unittest.TestCase):
                 "check_references_recency",
                 "check_encoding",
                 "check_ethics_statements",
+                "check_retraction",
             },
         )
 
