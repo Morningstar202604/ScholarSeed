@@ -9,6 +9,8 @@ AIGC:
     ReservedCode2: UO/5F5rQVTDzc4z18iMiHd0o7bBpl0l8xhj77uQLOyRTZlrRrxxWQqQm0LnZEgcrhlvnho5T0sJ/K8sDOilI5tIC1M72YmhGYaoMvUdFcq9emxJQlz95VQYXwW9v4quffWUypBZVSPXrDoQZkBqZ2J+/CThV5Qfqg0/Ify4nLkpzL/e25d8mWIiCE0Y=
 ---
 
+> **AI 代理（Codex / Cursor / Claude / ZCode 等）请先读 [AGENTS.md](AGENTS.md)**——本仓库的操作纪律（禁用 heredoc 补丁、路径/网络/分支保护约定）与新增工具的计数清单，每条都对应一次真实报错。
+
 ## Working rules
 
 * Dependency updates: search the whole repository for every occurrence of a dependency (build files, lockfiles, CI workflows, docs) before bumping. A partial bump — declaration updated but lockfile or a pinned action left behind — is the most common cause of "works locally, CI fails". Keep lockfiles in the same commit as the declaration. Move version-coupled toolchain upgrades together in one commit.
