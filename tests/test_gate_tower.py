@@ -435,5 +435,46 @@ class TestCheckRigorDeclarations(unittest.TestCase):
         self.assertEqual(out["totalWarnings"], 3)
 
 
+class TestCheckAnonymization(unittest.TestCase):
+    """L5 规范层：双盲匿名化。blind=False 诚实返回未启用。"""
+
+    LEAKY = (
+        "# T\n\n## 1. 引言\n\n结合我们之前的研究成果[3]，本文进一步扩展。\n\n"
+        "## 2. 方法\n\n细节见 C:" + chr(92) + "Users" + chr(92) + "zhangsan" + chr(92) + "data。\n\n"
+        "## 致谢\n\n感谢国家自然科学基金资助。\n"
+    )
+    CLEAN_BLIND = "# T\n\n## 1. 引言\n\n本方法基于已有第三人称文献展开。\n"
+
+    def test_not_blind_honest_noop(self):
+        r = paper_tools.check_anonymization(self.LEAKY, blind=False)
+        self.assertTrue(r["ok"])
+        self.assertIn("未启用", r["summary"]["note"])
+
+    def test_leaks_detected_as_errors(self):
+        r = paper_tools.check_anonymization(self.LEAKY, blind=True)
+        types = {i["type"] for i in r["issues"]}
+        self.assertIn("self_reference_leak", types)
+        self.assertIn("acknowledgment_in_blind", types)
+        self.assertIn("funding_in_blind", types)
+        self.assertIn("path_leak", types)
+        self.assertTrue(all(i["severity"] == "error" for i in r["issues"] if i["type"] != "path_leak"))
+        self.assertFalse(r["ok"])
+
+    def test_clean_blind_passes(self):
+        r = paper_tools.check_anonymization(self.CLEAN_BLIND, blind=True)
+        self.assertTrue(r["ok"], r["issues"])
+
+    def test_latex_author_and_yaml_leak(self):
+        md = "# T\n\n\\author{Zhang San <zhang@univ.edu>}\n\n---\nauthors: Zhang San\n---\n\n正文。\n"
+        r = paper_tools.check_anonymization(md, blind=True)
+        hits = [i for i in r["issues"] if i["type"] == "metadata_identity_leak"]
+        self.assertEqual(len(hits), 2)
+
+    def test_masked_line_exempt(self):
+        md = "# T\n\n## 1. 引言\n\n本研究受国家自然科学基金资助（信息已隐去）。\n"
+        r = paper_tools.check_anonymization(md, blind=True)
+        self.assertEqual([i for i in r["issues"] if i["type"] == "funding_in_blind"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

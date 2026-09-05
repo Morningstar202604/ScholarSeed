@@ -88,6 +88,7 @@ class TestTrilingualDescriptions(unittest.TestCase):
                 "check_symbol_consistency",
                 "check_abstract_promises",
                 "check_rigor_declarations",
+                "check_anonymization",
         }
         self.assertEqual({t["name"] for t in paper_tools.TOOLS}, expected)
 

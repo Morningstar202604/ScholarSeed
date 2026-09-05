@@ -104,6 +104,7 @@ CHECKERS = {
     "symbol": lambda a: pt.check_symbol_consistency(pt._md({"markdown": _read(a.file)})),
     "abstract-promises": lambda a: pt.check_abstract_promises(pt._md({"markdown": _read(a.file)})),
     "rigor": lambda a: pt.check_rigor_declarations(pt._md({"markdown": _read(a.file)}), a.genre),
+    "blind": lambda a: pt.check_anonymization(pt._md({"markdown": _read(a.file)}), blind=a.blind),
 }
 
 
@@ -230,6 +231,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_genre(sp)
     sp.add_argument("--no-common", action="store_true", help="terms 检查不豁免通用缩写")
     sp.add_argument("--title", default="", help="title 检查直接传标题")
+    sp.add_argument("--blind", action="store_true", help="blind 检查启用双盲模式")
     sp.set_defaults(func=cmd_check)
 
     sp = sub.add_parser("citation", help="DOI/标题 → 规范引用条目（Crossref 真实核验）")

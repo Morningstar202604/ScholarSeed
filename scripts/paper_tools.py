@@ -3434,6 +3434,67 @@ def check_rigor_declarations(markdown: str, genre: str = "empirical") -> dict:
     }
 
 
+# L5 规范层：盲审匿名化。双盲稿件泄漏作者身份是合规硬伤（error 级）。
+# 含"已隐去/masked"标注的行豁免——作者已按规程做了遮蔽。
+_SELF_PRIOR_WORK_RE = re.compile(
+    r"our (?:previous|prior|earlier|preceding) (?:work|study|research|paper|experiments?)"
+    r"|(?:我们|本文作者|作者)(?:的)?(?:之前|此前|先前|前期)(?:的)?(?:研究|工作|论文|实验)",
+    re.I,
+)
+_ACK_HEADING_RE = re.compile(r"^#{1,3}\s*(?:致\s?谢|acknowledg(?:ements?)?|funding)\s*$", re.M | re.I)
+_FUNDING_RE = re.compile(r"国家自然科学|社科基金|基金资助|项目资助|funded by|financial support|grant (?:no|number)", re.I)
+_MASKED_EXEMPT_RE = re.compile(r"隐去|已隐|已删|masked|omitted|removed for|anonymized|redacted", re.I)
+_LATEX_IDENTITY_RE = re.compile(r"\\author(?:\[[^\]]*\])?\s*\{([^}]+)\}|\\affiliation\s*\{([^}]+)\}|\\thanks\s*\{([^}]+)\}")
+_YAML_AUTHOR_RE = re.compile(r"^\s*(?:authors?|byline)\s*:\s*(\S.+)$", re.M | re.I)
+_PATH_LEAK_RE = re.compile(r"C:\\+Users\\+[A-Za-z0-9_.\\-]{2,30}|/home/[A-Za-z0-9_.\\-]{2,30}|/Users/[A-Za-z0-9_.\\-]{2,30}")
+
+
+def check_anonymization(markdown: str, blind: bool = False, source_format: str = "markdown") -> dict:
+    """盲审匿名化检查（L5 规范层，需显式 blind=true 启用）。
+
+    双盲评审稿件的身份泄漏点：致谢/基金标题或表述、"我们之前的研究"式自引
+    指涉、LaTeX \\author/\\affiliation/\\thanks 与 YAML frontmatter 作者字段、
+    正文中的本机路径。盲审违规为 error；含"已隐去/masked"标注的行豁免；
+    本机路径为 info（是否泄漏取决于文件用途）。blind=False 时诚实返回
+    未启用——单盲/开放评审无需匿名化，不制造噪声。
+    """
+    if not markdown or not markdown.strip():
+        return {"ok": True, "issues": []}
+    if not blind:
+        return {"ok": True, "issues": [], "summary": {"note": "未启用盲审模式（blind=true 启用）；单盲/开放评审无需匿名化检查"}}
+    body, _refs = _split_body_references(markdown)
+    body = _blank_fences(body)
+    starts = _line_starts(body)
+    issues = []
+
+    def _line_ok(pos: int) -> bool:
+        line_start = starts[_pos_to_line(pos, starts) - 1]
+        line_end = body.find("\n", line_start)
+        return not _MASKED_EXEMPT_RE.search(body[line_start : line_end if line_end >= 0 else len(body)])
+
+    for m in _ACK_HEADING_RE.finditer(body):
+        issues.append({"type": "acknowledgment_in_blind", "severity": "error", "line": _pos_to_line(m.start(), starts), "detail": "双盲稿件含致谢/Acknowledgments/Funding 段——审稿人可据此识别作者，必须整体移除（投稿系统内单独填写）"})
+    for m in _FUNDING_RE.finditer(body):
+        if _line_ok(m.start()):
+            issues.append({"type": "funding_in_blind", "severity": "error", "line": _pos_to_line(m.start(), starts), "detail": "双盲稿件出现基金/资助信息——应移至投稿系统或以'信息已隐去'标注整行"})
+    for m in _SELF_PRIOR_WORK_RE.finditer(body):
+        if _line_ok(m.start()):
+            issues.append({"type": "self_reference_leak", "severity": "error", "line": _pos_to_line(m.start(), starts), "detail": "双盲稿件出现指涉自身前期工作的表述——改为第三人称并匿名化该引用"})
+    for m in _LATEX_IDENTITY_RE.finditer(body):
+        content = next((g for g in m.groups() if g), "")
+        if content.strip():
+            issues.append({"type": "metadata_identity_leak", "severity": "error", "line": _pos_to_line(m.start(), starts), "detail": f"LaTeX 身份字段非空（\\author/\\affiliation/\\thanks → '{content[:24]}'）——双盲稿必须留空或匿名化"})
+    for m in _YAML_AUTHOR_RE.finditer(body):
+        if _line_ok(m.start()):
+            issues.append({"type": "metadata_identity_leak", "severity": "error", "line": _pos_to_line(m.start(), starts), "detail": f"frontmatter 作者字段（{m.group(1)[:24]}）——双盲稿必须移除"})
+    for m in _PATH_LEAK_RE.finditer(body):
+        issues.append({"type": "path_leak", "severity": "info", "line": _pos_to_line(m.start(), starts), "detail": f"正文含本机路径 '{m.group(0)}'——可能泄漏用户名/机构信息，建议改用相对路径"})
+    counts = {}
+    for i in issues:
+        counts[i["type"]] = counts.get(i["type"], 0) + 1
+    return {"ok": not issues, "issues": issues[:12], "summary": counts, "note": "盲审违规=error；'已隐去/masked'标注行豁免；路径泄漏为 info。身份元数据是否合规以目标期刊双盲规程为准"}
+
+
 # 样本量数字支持千分位逗号（"1,500 名参与者"），解析时去逗号——英文论文常见写法
 ZH_SAMPLE_PATTERN = re.compile(r"(样本量|样本数|样本|被试|受试者|参与者)\s*(?:量|数)?\s*[为约是=:]?\s*(\d{1,3}(?:,\d{3})+|\d{2,6})\s*([名份个人])?")
 EN_SAMPLE_PATTERN = re.compile(r"\b([Nn])\s*=\s*(\d{1,3}(?:,\d{3})+|\d{2,6})\b")
@@ -4713,6 +4774,19 @@ TOOLS = [
         },
     },
     {
+        "name": "check_anonymization",
+        "description": "盲审匿名化检查（L5 规范层，需显式 blind=true）：检出双盲稿件的身份泄漏——致谢/基金段、'我们之前的研究'式自引指涉、LaTeX \\author/\\affiliation/\\thanks 与 frontmatter 作者字段（error），本机路径（info）。含'已隐去/masked'标注的行豁免。blind=False 时诚实返回未启用（单盲/开放评审无需匿名化）。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "markdown": {"type": "string"},
+                "blind": {"type": "boolean", "description": "是否双盲评审（默认 false，false 时仅返回未启用说明）", "default": False},
+                "source_format": {"type": "string", "description": "markdown | latex，默认 markdown", "default": "markdown"},
+            },
+            "required": ["markdown"],
+        },
+    },
+    {
         "name": "audit_delta",
         "description": "修复增量对比：对修改前后两版跑同一门禁束，输出 已修复/新引入/仍存在 的差集与净改善判定——智能体每轮修改后调用一次即可验证改动质量，避免按下葫芦浮起瓢。",
         "inputSchema": {
@@ -4784,6 +4858,7 @@ _TOOL_DESC_EN = {
     "check_symbol_consistency": "Symbol consistency check (gate tower layer L3): builds a symbol-to-meaning map from definition sentences ('λ denotes the learning rate' / '设 λ 为学习率'); one symbol defined as two dissimilar meanings is an error (the one-symbol-one-meaning redline), one meaning carried by several symbols is a warning. Fenced code and display math are exempt; Greek characters and LaTeX macro names are normalized before comparison.",
     "check_abstract_promises": "Abstract-promise fulfillment check (gate tower layer L3): extracts promise sentences from the abstract (we propose / 本研究提出 / 提出了一种…) and reports when the promised object's key terms never appear in the body — the direct source of 'discrepancy between abstract and body' reviewer comments. A lenient zero-overlap threshold avoids false alarms on reworded bodies; missing abstracts belong to check_abstract.",
     "check_rigor_declarations": "Methodological rigor declaration check (gate tower layer L4, empirical/thesis genres): when a trigger scenario is detected (t-tests/ANOVA/regression, claimed RCT, questionnaire surveys), verifies the corresponding statement is present — normality testing, multiple-comparison correction, power/sample-size justification, randomization/blinding, missing-data handling. Presence only (warnings); whether the chosen method is correct is outside text-tool scope.",
+    "check_anonymization": "Blind-review anonymization check (gate tower layer L5, requires explicit blind=true): detects identity leaks in double-blind submissions — acknowledgments/funding sections, self-referring phrases like 'our previous work', non-empty LaTeX \\author/\\affiliation/\\thanks and frontmatter author fields (errors), and local filesystem paths (info). Lines marked as masked/redacted are exempt. With blind=false it honestly reports itself not applicable — single-blind/open review needs no anonymization.",
     "audit_delta": "Fix-delta comparison: runs the same gate bundle on before/after manuscripts and reports fixed vs introduced vs persisted findings with a net-improvement verdict, so every agent edit round is verified.",
 }
 
@@ -4836,6 +4911,7 @@ _TOOL_DESC_JA = {
     "check_symbol_consistency": "記号整合性検査（ゲート塔L3層）：定義文（'λ は学習率を表す'/'λ denotes the learning rate'）から記号→意味マップを構築し、同一記号が異なる意味に定義されればerror（一記号一義のレッドライン）、同一意味に複数記号が使われればwarning。コードブロックとディスプレイ数式は対象外。",
     "check_abstract_promises": "抄録承诺の履行検査（ゲート塔L3層）：抄録の提案文（we propose/本研究提出）を抽出し、その対象キーワードが本文に全く現れない場合に警告——「抄録と本文の不一致」審査意見の直接の源泉。緩い閾値で誤報を防止。",
     "check_rigor_declarations": "方法論的厳密性声明検査（ゲート塔L4層、実証/学位論文体裁）：トリガー検出（t検定/ANOVA/RCT/アンケート等）後に対応する声明の存在を確認——正規性検定、多重比較補正、検定力/サンプルサイズ、ランダム化/盲検、欠損データ。声明の存在のみ確認（warning）。",
+    "check_anonymization": "盲検匿名化検査（ゲート塔L5層、blind=true が必要）：ダブルブラインド稿の身元漏れを検出——謝辞/資金セクション、自著先行研究への言及、LaTeX \\author/\\affiliation/\\thanks と frontmatter 著者欄（error）、ローカルパス（info）。マスク済み記載行は免除。blind=false では未適用と正直に返す。",
     "audit_delta": "修正差分比較：修正前後の原稿に同一ゲート束を実行し、解決/新規/残存を差集合で報告し、純改善判定を返す。",
 }
 
@@ -5047,6 +5123,8 @@ def _call_tool(name: str, arguments: dict) -> dict:
         return _result_text(json.dumps(check_abstract_promises(_md(args)), ensure_ascii=False))
     if name == "check_rigor_declarations":
         return _result_text(json.dumps(check_rigor_declarations(_md(args), str(args.get("genre", "empirical"))), ensure_ascii=False))
+    if name == "check_anonymization":
+        return _result_text(json.dumps(check_anonymization(_md(args), bool(args.get("blind", False)), str(args.get("source_format", "markdown"))), ensure_ascii=False))
     if name == "audit_delta":
         return _result_text(
             audit_delta(

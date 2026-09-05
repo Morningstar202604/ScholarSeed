@@ -1208,6 +1208,7 @@ class TestProtocolHandshake(unittest.TestCase):
                 "check_symbol_consistency",
                 "check_abstract_promises",
                 "check_rigor_declarations",
+                "check_anonymization",
             },
         )
 
