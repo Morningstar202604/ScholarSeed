@@ -71,5 +71,51 @@ class TestCheckEncoding(unittest.TestCase):
         self.assertEqual(gates, {"encoding"})
 
 
+class TestCheckEthicsStatements(unittest.TestCase):
+    """P 合法前提：声明存在性检查，涉人研究缺伦理声明为 error。"""
+
+    EMPIRICAL_DIRTY = (
+        "# 研究\n\n## 1. 引言\n\n我们对 250 名参与者的数据进行了分析。\n\n"
+        "## 2. 方法\n\n采用问卷调查。\n\n## 3. 结果\n\n结果显著。\n\n## References\n\n[1] A. (2020). B. J.\n"
+    )
+    EMPIRICAL_CLEAN = (
+        "# 研究\n\n## 摘要\n\n本研究使用 AI 辅助完成初稿整理，已如实披露。\n\n"
+        "## 1. 引言\n\n我们对 250 名参与者的数据进行了分析。\n\n"
+        "## 2. 方法\n\n本研究获伦理委员会批准，参与者均签署知情同意书；无利益冲突；数据可用性声明见附录。\n\n"
+        "## References\n\n[1] A. (2020). B. J.\n"
+    )
+
+    def test_human_subjects_without_ethics_is_error(self):
+        r = paper_tools.check_ethics_statements(self.EMPIRICAL_DIRTY, genre="empirical")
+        hit = [i for i in r["issues"] if i["type"] == "ethics_missing_human_subjects"]
+        self.assertEqual(len(hit), 1)
+        self.assertEqual(hit[0]["severity"], "error")
+        self.assertTrue(r["summary"]["humanSubjectsDetected"])
+
+    def test_complete_statements_pass(self):
+        r = paper_tools.check_ethics_statements(self.EMPIRICAL_CLEAN, genre="empirical")
+        self.assertTrue(r["ok"], r["issues"])
+        for key in ("ethics_approval", "conflict_of_interest", "ai_disclosure", "data_availability"):
+            self.assertIn(key, r["summary"]["found"])
+
+    def test_ai_nonuse_declaration_counts(self):
+        md = "# 论文\n\n正文内容。\n\n## 声明\n\n本文未使用任何人工智能工具。无利益冲突。\n"
+        r = paper_tools.check_ethics_statements(md, genre="survey")
+        self.assertIn("ai_disclosure", r["summary"]["found"])
+
+    def test_non_empirical_without_subjects_skips_ethics_and_data(self):
+        md = "# 论文\n\n纯理论论证文本。\n"
+        r = paper_tools.check_ethics_statements(md, genre="argumentative")
+        types = {i["type"] for i in r["issues"]}
+        self.assertNotIn("ethics_missing", types)
+        self.assertNotIn("data_availability_missing", types)
+        self.assertEqual(types, {"coi_missing", "ai_disclosure_missing"})
+
+    def test_gate_suite_includes_ethics(self):
+        out = json.loads(paper_tools.gate_suite(self.EMPIRICAL_DIRTY, gates="ethics", genre="empirical"))
+        self.assertFalse(out["pass"])
+        self.assertEqual(out["totalErrors"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

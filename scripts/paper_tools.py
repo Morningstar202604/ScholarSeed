@@ -2910,6 +2910,50 @@ def check_encoding(markdown: str) -> dict:
     return {"ok": not issues, "issues": issues[:10], "summary": counts, "note": "替换符/CID 为 error（文本不可读），乱码/控制字符为 warning；只报告字符事实，不猜测成因"}
 
 
+# P 合法前提层：投稿资格声明存在性。工具只查"写了没有"，声明真伪归作者与机构。
+_ETHICS_STATEMENTS = [
+    ("ethics_approval", "伦理审批/知情同意", r"伦理(?:审查|批准|委员会)|知情同意|informed consent|ethics (?:approval|committee|review)|IRB|institutional review board"),
+    ("conflict_of_interest", "利益冲突披露", r"利益冲突|conflicts? of interest|competing (?:interests|financial)|declarations? of interest"),
+    ("ai_disclosure", "AI 使用披露（AIGC 合规）", r"(?:人工智能|AI|AIGC|生成式(?:人工智能)?|ChatGPT|GPT|大语言模型|大模型)[^。；;\n]{0,24}(?:披露|声明|辅助写作|辅助完成|使用情况|未使用|不涉及)|(?:未使用|不涉及|未借助)[^。；;\n]{0,16}(?:人工智能|AI|AIGC|生成式|ChatGPT|大语言模型|大模型)|(?:AI[- ]assisted|generative AI|large language model|\bLLM\b)[^.\n]{0,30}(?:disclos|declar|assist|use)|\bno\s+AI\b"),
+    ("data_availability", "数据可用性声明", r"数据可用性|数据获得|数据获取|data availability|availability of (?:the )?data|data sharing"),
+]
+_HUMAN_SUBJECTS_RE = re.compile(r"患者|病人|受试者|被试|参与者|受访者|访谈对象|participants|patients|subjects|interviewees|respondents", re.I)
+
+
+def check_ethics_statements(markdown: str, genre: str = "empirical") -> dict:
+    """合法前提检查：伦理审批/知情同意、利益冲突、AI 使用披露、数据可用性声明是否在场。
+
+    缺伦理声明且正文提及人类受试者 = 桌拒级红线（error）；其余缺失为 warning。
+    本检查只验证声明存在性与非空，不判断声明真伪——真实性由作者与机构负责。
+    """
+    if not markdown or not markdown.strip():
+        return {"ok": True, "issues": []}
+    body, _refs = _split_body_references(markdown)
+    body = _blank_fences(body)
+    starts = _line_starts(body)
+    found = {}
+    for key, label, pat in _ETHICS_STATEMENTS:
+        m = re.search(pat, body, flags=re.I)
+        if m:
+            found[key] = _pos_to_line(m.start(), starts)
+    issues = []
+    human_subjects = bool(_HUMAN_SUBJECTS_RE.search(body))
+    is_empirical = (genre or "empirical").lower() in ("empirical", "thesis")
+    if "ethics_approval" not in found:
+        if human_subjects:
+            issues.append({"type": "ethics_missing_human_subjects", "severity": "error", "detail": "正文提及人类受试者（患者/参与者/被试等）但未见伦理审批或知情同意声明——期刊合规桌拒级红线"})
+        elif is_empirical:
+            issues.append({"type": "ethics_missing", "severity": "warning", "detail": "实证论文未见伦理声明（如确不涉人类/动物实验，请在方法中显式说明豁免依据）"})
+    if "conflict_of_interest" not in found:
+        issues.append({"type": "coi_missing", "severity": "warning", "detail": "未见利益冲突披露声明（conflict of interest / 利益冲突）——多数期刊为必备声明"})
+    if "ai_disclosure" not in found:
+        issues.append({"type": "ai_disclosure_missing", "severity": "warning", "detail": "未见 AI 使用披露（AIGC 合规：使用/未使用均需显式声明）——国内学位与期刊规范趋严"})
+    if "data_availability" not in found and is_empirical:
+        issues.append({"type": "data_availability_missing", "severity": "warning", "detail": "实证论文未见数据可用性声明（data availability statement）——可复现性基本要求"})
+    summary = {"found": {k: v for k, v in found.items()}, "missing": [k for k, _, _ in _ETHICS_STATEMENTS if k not in found], "humanSubjectsDetected": human_subjects, "genre": genre}
+    return {"ok": not issues, "issues": issues, "summary": summary, "note": "声明存在性检查：工具查'写了没有'，真伪归人；涉人研究缺伦理声明为 error"}
+
+
 # 样本量数字支持千分位逗号（"1,500 名参与者"），解析时去逗号——英文论文常见写法
 ZH_SAMPLE_PATTERN = re.compile(r"(样本量|样本数|样本|被试|受试者|参与者)\s*(?:量|数)?\s*[为约是=:]?\s*(\d{1,3}(?:,\d{3})+|\d{2,6})\s*([名份个人])?")
 EN_SAMPLE_PATTERN = re.compile(r"\b([Nn])\s*=\s*(\d{1,3}(?:,\d{3})+|\d{2,6})\b")
@@ -3512,6 +3556,7 @@ _GATE_REGISTRY = [
     ("references_recency", "文献时效性（陈旧综述信号）", lambda md, genre: check_references_recency(md)),
     ("placeholders", "占位符/未完成痕迹", lambda md, genre: check_placeholders(md)),
     ("encoding", "文件底座：编码损坏/乱码/CID 残留", lambda md, genre: check_encoding(md)),
+    ("ethics", "P 前提：伦理/利益冲突/AI 披露/数据声明", lambda md, genre: check_ethics_statements(md, genre)),
     ("links", "链接可信（离线语法与虚假特征）", lambda md, genre: check_links(md)),
     ("vague_attribution", "模糊归因（无引注的'研究表明/专家认为'）", lambda md, genre: check_vague_attribution(md)),
     ("numbers", "数字一致性（口径/加和/百分比）", lambda md, genre: check_numbers(md)),
@@ -4115,6 +4160,18 @@ TOOLS = [
         "inputSchema": {"type": "object", "properties": {"markdown": {"type": "string"}}, "required": ["markdown"]},
     },
     {
+        "name": "check_ethics_statements",
+        "description": "合法前提检查（门禁塔 P 层）：伦理审批/知情同意、利益冲突披露、AI 使用披露（AIGC 合规）、数据可用性声明的存在性。正文提及人类受试者而缺伦理声明为 error（桌拒红线），其余缺失为 warning。工具只查声明在场，真伪归作者与机构。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "markdown": {"type": "string"},
+                "genre": {"type": "string", "description": "survey | empirical | tech | thesis | argumentative，默认 empirical（empirical/thesis 要求伦理与数据声明）", "default": "empirical"},
+            },
+            "required": ["markdown"],
+        },
+    },
+    {
         "name": "audit_delta",
         "description": "修复增量对比：对修改前后两版跑同一门禁束，输出 已修复/新引入/仍存在 的差集与净改善判定——智能体每轮修改后调用一次即可验证改动质量，避免按下葫芦浮起瓢。",
         "inputSchema": {
@@ -4179,6 +4236,7 @@ _TOOL_DESC_EN = {
     "check_placeholders": "Placeholder and unfinished-work traces: TODO, FIXME, ???, [citation needed], and Chinese equivalents — must be zero before delivery.",
     "check_links": "Link trustworthiness: offline checks for placeholder domains (example.com/localhost), reserved/invalid TLDs, and hostless URLs; with live=true, HEAD-verifies each URL (404/410 dead links; blocked requests reported honestly as unverifiable).",
     "check_encoding": "Encoding health check (document substrate): U+FFFD replacement chars and (cid:N) PDF-extraction artifacts (unreadable text, error-level), UTF-8-read-as-Latin-1 mojibake signatures, stray control characters, and mid-file BOM. A broken substrate invalidates every line-numbered finding above it.",
+    "check_ethics_statements": "Legitimacy-precondition check (gate tower layer P): presence of ethics approval / informed consent, conflict-of-interest disclosure, AI-use disclosure (AIGC compliance), and data availability statements. Missing ethics with human subjects in the text is an error (desk-reject redline); other absences are warnings. Presence only — statement truth is the authors' responsibility.",
     "audit_delta": "Fix-delta comparison: runs the same gate bundle on before/after manuscripts and reports fixed vs introduced vs persisted findings with a net-improvement verdict, so every agent edit round is verified.",
 }
 
@@ -4224,6 +4282,7 @@ _TOOL_DESC_JA = {
     "check_placeholders": "プレースホルダ痕跡：TODO、FIXME、???、[citation needed]、待补充など、提出前に必ず除去。",
     "check_links": "リンク信頼性：プレースホルダドメイン・無効TLD・ホストなしURLをオフライン検査；live=trueでHEAD検証（404/410は死リンク）。",
     "check_encoding": "エンコーディング健全性検査（文書基盤）：U+FFFD置換文字と(cid:N) PDF抽出残骸（読めない文字、error）、UTF-8をLatin-1誤読した文字化けシグネチャ、異常制御文字、文中BOMを検出。基盤が壊れると行番号証拠は無効化される。",
+    "check_ethics_statements": "適法性前提検査（ゲート塔P層）：倫理承認/インフォームド・コンセント、利益相反開示、AI利用開示（AIGC準拠）、データ利用可能性声明の存在確認。人間被験者に言及しつつ倫理声明が欠落の場合はerror（デスクリジェクト級）、その他の欠落はwarning。存在確認のみで真偽は著者の責任。",
     "audit_delta": "修正差分比較：修正前後の原稿に同一ゲート束を実行し、解決/新規/残存を差集合で報告し、純改善判定を返す。",
 }
 
@@ -4421,6 +4480,8 @@ def _call_tool(name: str, arguments: dict) -> dict:
         return _result_text(json.dumps(check_links(_md(args), bool(args.get("live", False))), ensure_ascii=False))
     if name == "check_encoding":
         return _result_text(json.dumps(check_encoding(_md(args)), ensure_ascii=False))
+    if name == "check_ethics_statements":
+        return _result_text(json.dumps(check_ethics_statements(_md(args), str(args.get("genre", "empirical"))), ensure_ascii=False))
     if name == "audit_delta":
         return _result_text(
             audit_delta(
