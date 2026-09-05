@@ -99,7 +99,7 @@ call_pat = re.compile(
     r"verify_references|check_style|check_punctuation|check_figures_tables|check_terms|"
     r"check_duplicates|check_references_format|proofread|check_intext_citations|check_sections|"
     r"word_budget|check_ai_signature|check_numbers|check_hedging|check_stats|audit_pdf|"
-    r"check_self_plagiarism|audit_project|format_citation|check_abstract|check_title|audit_paper)\("
+    r"check_self_plagiarism|audit_project|format_citation|check_abstract|check_title|audit_paper|check_retraction|check_claim_citation_fit|check_version_mismatch|check_symbol_consistency|check_abstract_promises|check_rigor_declarations|check_anonymization|check_encoding|check_ethics_statements|check_units)\("
 )
 bare_pat = re.compile(
     r"`(render_template|word_count|check_structure|generate_outline|literature_checklist|"
@@ -107,7 +107,7 @@ bare_pat = re.compile(
     r"verify_references|check_style|check_punctuation|check_figures_tables|check_terms|"
     r"check_duplicates|check_references_format|proofread|check_intext_citations|check_sections|"
     r"word_budget|check_ai_signature|check_numbers|check_hedging|check_stats|audit_pdf|"
-    r"check_self_plagiarism|audit_project|format_citation|check_abstract|check_title|audit_paper)`"
+    r"check_self_plagiarism|audit_project|format_citation|check_abstract|check_title|audit_paper|check_retraction|check_claim_citation_fit|check_version_mismatch|check_symbol_consistency|check_abstract_promises|check_rigor_declarations|check_anonymization|check_encoding|check_ethics_statements|check_units)`"
 )
 for md in Path("skills").rglob("*.md"):
     t = md.read_text(encoding="utf-8")

@@ -112,6 +112,7 @@ AIGC:
 - 用 `literature_checklist` 生成逐条核验清单并逐条落实；对含 DOI 的条目执行 **DOI 三重核对**（① 可解析 ② 卷期页码与 Crossref 一致 ③ 作者年份匹配，警惕同名多篇/预印本混淆），全部 A 级后才进入下一阶段（参考 workflow 步骤 3 与 `references/citation-guide.md`）。
 - 每条待核验文献优先调用 paper-tools 的 `citation_verify` 工具（真实调 Crossref API）：有 DOI 按 DOI 核验，无 DOI 按标题核验；工具返回的元数据（卷期页码/作者/年份）与文献表逐项比对，不一致即降级为 B 级并标记待核实。
 - **批量门禁**：全表完成后调用 `verify_references(markdown=全文)` 出 A/B/C 统计——C 级必须补来源或删除，禁止带 C 级进入下一阶段（workflow 步骤 3 门禁）。
+- **撤稿与版本筛查**：批量核验后调用 `check_retraction(markdown=全文)` 逐条筛查被引文献撤稿状态（Crossref 记录）——确认被撤稿的条目必须替换或删除，网络不可达按 X 级联网重跑；含 arXiv 标识的条目用 `check_version_mismatch(markdown=全文)` 核查是否已有正式发表版（有则更新引用元数据）；强主张句用 `check_claim_citation_fit(markdown=全文)` 做引证契合提示，弱契合项人工确认引文是否支撑该论点。
 
 ### 阶段 7：图表制作与格式排版
 
@@ -123,26 +124,27 @@ AIGC:
   - 期刊投稿 → LaTeX（IEEE/Elsevier 模板结构）或 Word 结构稿；
   - 公众号/知乎 → 带标题层级、摘要、引用块的 Markdown；
   - 学位论文 → 按 `references/thesis-guide.md` 执行开题 → 写作 → 查重 → 盲审 → 答辩全流程，并用 `render_template(genre="thesis")` 生成章节骨架；分章文件交付前用 `audit_project(project_dir=...)` 做跨章合并审计。
-- 标题层级、图表编号、公式、参考文献格式按模板规范。
+- 公式与符号按 `references/equations-symbols.md` 执行一符一义红线；机检入口 `check_symbol_consistency(markdown=全文)`：同一符号两种含义（error）与同一含义多符号（warning）必须裁决。
 
 ### 阶段 8：质量自检（交付前必做）
 
 - **确定性审计先行**：先跑机器审计再人工复核——
   - `proofread(markdown=全文)`：结构/文风/标点/图表/术语/重复/正文引用核对/数字一致性/断言对冲（实证体裁含统计诚信），ERROR 项必须清零；
   - `audit_paper(markdown=全文, genre=..., journal=...)`：一键全量（另含 AI 痕迹画像 + 章节完整性 + 统计红线 + 词数预算对照），输出启发式总分供交付前留档；
-  - 摘要专项 `check_abstract`、标题专项 `check_title`：四要素覆盖与空泛措辞在投稿前必查。
+  - 摘要专项 `check_abstract`、标题专项 `check_title`、承诺兑现 `check_abstract_promises`：四要素覆盖、空泛措辞与'摘要承诺正文兑现'在投稿前必查。
 - 对照 `references/writing-checklist.md` 与 `references/self-review.md` 逐项过一遍，输出自检表：
   - 结构完整性、逻辑一致性、证据充分性、引用合规性、语言质量、篇幅达标、格式合规；
   - **claim-evidence 对齐**：全文每个可证伪论断找到直接证据，标记 Over-claim / Under-support / Orphan 三类问题并修复；
   - **审稿人 10 问**：模拟外审通读全文；
   - **Red-team**：主动寻找最弱攻击点至少 3 个并书面回答。
   - 对照 `references/pitfalls-and-landmines.md` 的"审稿人隐性雷区"（一稿多投/重复发表/署名/利益冲突/AI 披露/数据造假）与"编辑视角十五误区"逐条核对，任何命中先解决再交付。
-- 统计严谨性按 `references/statistical-analysis.md` 红线复核（机检入口：`check_stats`）：n 与重复、效应量、多重比较校正、异常值处理、不把不显著当等价。
+- 统计严谨性按 `references/statistical-analysis.md` 红线复核（机检入口：`check_stats` 与 `check_rigor_declarations`——后者核对正态性/多重比较/效能/随机盲法/缺失数据声明在场）：n 与重复、效应量、多重比较校正、异常值处理、不把不显著当等价。
 - 学位论文等多文件工程改用 `audit_project(project_dir=...)`：按章合并后跨章节查缩写一致、整句自我重复与引用对应——单章通过不代表工程级一致。
 - **自查重**：涉及自己既往稿件复用时调用 `check_self_plagiarism(markdown=全文, corpus_dir=历史稿目录)` 做 n-gram 重叠检测（学位论文章节复用/系列论文模板句场景），命中项人工判断改写或引用。
+- **资格与盲审**：投稿前调用 `check_ethics_statements(markdown=全文, genre=...)` 核对伦理/利益冲突/AI 披露/数据可用性声明在场（涉人研究缺伦理声明不可交付）；双盲投稿加跑 `check_anonymization(markdown=全文, blind=true)`，致谢/基金/自引指涉/身份元数据泄漏必须清除。
 - **残留取证**：交付前调用 `check_tamper_traces(markdown=全文)` 确认正文无零宽字符/同形字/异常空白等残留（多轮复制粘贴与格式转换可能引入），命中项先清洗再交付。
 - **智能体迭代回路**：多轮修改场景下用 `gate_suite(markdown=全文)` 一次取回全部离线门禁的 pass 判定与 blocking 清单，修复后用 `audit_delta(before=旧版, after=新版)` 验证净改善（新引入问题多于修复则回退），循环至 `pass=true` 且 `errorsAfter=0`；高频复检用 `audit_paper(brief=true)` 省上下文。整条流水线的顺序计划可用 `next_actions(goal=submission|thesis|polish)` 直接获取。
-- **残留取证**：交付前调用 `check_tamper_traces(markdown=全文)` 确认正文无零宽字符/同形字/异常空白等残留（多轮复制粘贴与格式转换可能引入），命中项先清洗再交付。
+- **底座与残留取证**：交付前调用 `check_tamper_traces(markdown=全文)`（零宽/同形字/异常空白）、`check_encoding(markdown=全文)`（乱码/U+FFFD/CID 残留）、`check_units(markdown=全文)`（同族单位写法混用），命中项先清洗统一再交付。
 - 深度自检可用 `paper-review` 技能（本插件独立技能）的 12 轴技术关注清单做同行评审演练；重点文献的结论边界与批判性分析参考 `paper-card` 技能产出的证据卡片。
 - 未达标项必须在本阶段修复，修复后再输出最终稿。
 

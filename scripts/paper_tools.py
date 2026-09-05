@@ -4209,7 +4209,7 @@ def gate_suite(markdown: str, gates: str = "", genre: str = "empirical", allow_c
     """组合门禁套件：一次运行选定的离线确定性检查器，输出统一 JSON 判定。
 
     为智能体迭代修复设计：返回 {"pass", "blocking", "gates":[...]}——智能体读取
-    verdict 后自动修复再重跑，直到 pass=true。默认跑全部 18 道门禁；
+    verdict 后自动修复再重跑，直到 pass=true。默认跑全部 24 道门禁；
     gates 参数传逗号分隔子集（如 "style,numbers,stats"）。统计门禁仅实证体裁生效。
     通过判定与 proofread 纪律一致：ERROR 计数为 0。
     """
@@ -4279,7 +4279,10 @@ _AGENT_PLAN = {
     "submission": [
         {"stage": "定目标", "tool": "journal_matcher", "params": "按主题关键词取候选，人工锁定唯一优先目标", "pass": "目标期刊已锁定"},
         {"stage": "定篇幅", "tool": "render_template", "params": "genre=论文体裁, journal=目标期刊档", "pass": "分章词数基准已写入稿头"},
+        {"stage": "投稿资格", "tool": "check_ethics_statements", "params": "genre=论文体裁", "pass": "伦理/利益冲突/AI 披露/数据声明齐备（error=0）"},
         {"stage": "文献", "tool": "verify_references", "params": "全文", "pass": "C 级清零（X 级联网重跑）"},
+        {"stage": "撤稿筛查", "tool": "check_retraction", "params": "全文", "pass": "无 cited_retracted_work（X 级联网重跑）"},
+        {"stage": "契合与版本", "tool": "check_claim_citation_fit + check_version_mismatch", "params": "全文", "pass": "弱契合/预印本错配项已人工复核"},
         {"stage": "初检", "tool": "gate_suite", "params": "genre=论文体裁", "pass": "pass=true（ERROR=0）"},
         {"stage": "统计", "tool": "check_stats", "params": "全文（实证体裁）", "pass": "无 p_zero/p_out_of_range"},
         {"stage": "精修", "tool": "check_style + check_ai_signature", "params": "全文，逐处重写模板腔", "pass": "warning 级 AI 高频词清零"},
@@ -4288,14 +4291,16 @@ _AGENT_PLAN = {
     ],
     "thesis": [
         {"stage": "合并", "tool": "audit_project", "params": "project_dir=分章目录", "pass": "跨章缩写/重复/引用问题清零"},
+        {"stage": "资格声明", "tool": "check_ethics_statements", "params": "合并全文, genre=thesis", "pass": "伦理/利益冲突/AI 披露/数据声明齐备"},
         {"stage": "文献", "tool": "verify_references", "params": "合并全文 --fail-on C", "pass": "C 级清零"},
+        {"stage": "撤稿筛查", "tool": "check_retraction", "params": "合并全文", "pass": "无 cited_retracted_work（X 级不计失败）"},
         {"stage": "自查重", "tool": "check_self_plagiarism", "params": "corpus_dir=历史稿目录", "pass": "命中项已人工裁决"},
         {"stage": "终审", "tool": "audit_paper", "params": "genre=thesis", "pass": "errors=0"},
     ],
     "polish": [
         {"stage": "定位", "tool": "check_style", "params": "全文", "pass": "已逐处过目"},
         {"stage": "画像", "tool": "check_ai_signature", "params": "全文", "pass": "模板腔段落已重写"},
-        {"stage": "残留", "tool": "check_tamper_traces", "params": "全文", "pass": "无零宽/同形字/异常空白"},
+        {"stage": "残留", "tool": "check_tamper_traces + check_encoding + check_units", "params": "全文", "pass": "无零宽/同形字/编码损坏/单位混用"},
         {"stage": "增量", "tool": "audit_delta", "params": "before=修改前, after=修改后", "pass": "verdict=净改善"},
     ],
 }
