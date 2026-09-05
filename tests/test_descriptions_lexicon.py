@@ -83,6 +83,7 @@ class TestTrilingualDescriptions(unittest.TestCase):
                 "check_encoding",
                 "check_ethics_statements",
                 "check_retraction",
+                "check_claim_citation_fit",
         }
         self.assertEqual({t["name"] for t in paper_tools.TOOLS}, expected)
 

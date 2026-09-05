@@ -99,6 +99,7 @@ CHECKERS = {
     "encoding": lambda a: pt.check_encoding(pt._md({"markdown": _read(a.file)})),
     "ethics": lambda a: pt.check_ethics_statements(pt._md({"markdown": _read(a.file)}), a.genre),
     "retraction": lambda a: pt.check_retraction(pt._md({"markdown": _read(a.file)})),
+    "claim-fit": lambda a: pt.check_claim_citation_fit(pt._md({"markdown": _read(a.file)})),
 }
 
 

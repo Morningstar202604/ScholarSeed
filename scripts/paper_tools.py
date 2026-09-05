@@ -32,6 +32,7 @@ from paper_ir import (
     _pos_to_line,
     _split_body_references,
     _split_sentences,
+    iter_sentences,
 )
 
 SERVER_NAME = "paper-tools"
@@ -3054,6 +3055,134 @@ def check_retraction(markdown: str, max_entries: int = 30) -> dict:
     return {"ok": not any(i["severity"] == "error" for i in issues), "issues": issues, "summary": stats, "note": note + "；X 级纪律：无法核验永不触发门禁"}
 
 
+# L2 契合层：引证契合。工具只做词汇级契合提示（stdlib 射程），
+# "源文是否真支持该主张"的语义级判断需要模型推理，属明确不做（见 ARCHITECTURE.md）。
+_FIT_STOPWORDS = {
+    "the", "and", "for", "that", "this", "with", "from", "are", "was", "were", "which", "their",
+    "have", "has", "had", "not", "but", "can", "may", "our", "its", "also", "than", "into", "such",
+    "these", "those", "between", "among", "based", "using", "results", "result", "study", "paper",
+    "we", "propose", "present", "show", "shown", "suggest", "suggests", "found",
+}
+_STRONG_CLAIM_RE = re.compile(
+    r"significantly|substantially|proves? that|demonstrates? that|confirms? that|validates? that|establishes? that"
+    r"|显著(?:地)?(?:表?明|证明|优于|提升|降低|高于|低于)|证明了|证实了|验证了|确立了|显著(?:改善|提高|增强)",
+    re.I,
+)
+_AUTHORYEAR_CITE_RE = re.compile(
+    r"\(\s*([A-Za-z\u4e00-\u9fff][^(),;]{0,30}?)\s*,\s*((?:19|20)\d{2})[a-z]?\s*\)|（\s*([^（）,；]{1,30}?)\s*，?\s*((?:19|20)\d{2})[a-z]?）"
+)
+
+
+def _fit_terms(text: str) -> set:
+    """契合度词元：拉丁实词(≥3 字母，去停用词) + 中文二元组。"""
+    low = text.lower()
+    terms = {w for w in re.findall(r"[a-z]{3,}", low) if w not in _FIT_STOPWORDS}
+    terms.update(re.findall(r"[\u4e00-\u9fff]{2}", low))
+    return terms
+
+
+def _citation_source_probe(doi: str, title: str) -> dict:
+    """获取所引文献的标题与摘要（供契合度比对）；失败诚实降级。
+
+    返回 {status: matched|unmatched|unverifiable, title, abstract}。
+    """
+    raw = None
+    if doi.strip():
+        url = f"{CROSSREF_API}/{urllib.parse.quote(doi.strip(), safe='')}"
+        try:
+            raw = _fetch_json(url, headers=_crossref_headers()).get("message", {})
+        except Exception as e:
+            return {"status": "unverifiable", "note": str(e), "title": "", "abstract": ""}
+        src_title = ((raw.get("title") or [""]) or [""])[0]
+        abstract = re.sub(r"<[^>]+>", " ", raw.get("abstract", "") or "")
+        return {"status": "matched", "title": src_title, "abstract": abstract}
+    if not _title_hint_long_enough(title):
+        return {"status": "unmatched", "note": "标题线索不足", "title": "", "abstract": ""}
+    try:
+        matched = _crossref_by_title(title)
+    except Exception as e:
+        return {"status": "unverifiable", "note": str(e), "title": "", "abstract": ""}
+    if not matched.get("verified"):
+        return {"status": "unmatched", "note": str(matched.get("note", "未命中")), "title": "", "abstract": ""}
+    resolved = str(matched.get("doi", "") or "")
+    abstract = ""
+    if resolved:
+        try:
+            raw = _fetch_json(f"{CROSSREF_API}/{urllib.parse.quote(resolved, safe='')}", headers=_crossref_headers()).get("message", {})
+            abstract = re.sub(r"<[^>]+>", " ", raw.get("abstract", "") or "")
+        except Exception:
+            abstract = ""
+    return {"status": "matched", "title": str(matched.get("title", "")), "abstract": abstract}
+
+
+def check_claim_citation_fit(markdown: str, max_assessed: int = 15) -> dict:
+    """引证契合检查（L2 契合层，联网+缓存）：强主张句与所引文献标题/摘要的词汇契合度。
+
+    只检查"带强主张措辞 + 引注"的句子：主张句词元与所引文献标题/摘要词元的
+    重叠率过低时提示人工复核——词汇契合度低 ≠ 引文错误，但 polished-but-unsupported
+    的主张是审稿人"source?"质疑的高发点。无法获取所引文献元数据时诚实降级，
+    不参与评估也不计入门禁失败。severity=warning（准门禁，需人工复核）。
+    """
+    if not markdown or not markdown.strip():
+        return {"ok": True, "issues": []}
+    body, _refs = _split_body_references(markdown)
+    entries = _extract_reference_entries(markdown)
+    if not entries:
+        return {"ok": True, "issues": [], "summary": {"note": "未识别到文献条目，无法建立引用映射"}}
+    issues = []
+    stats = {"strongClaimCitations": 0, "assessed": 0, "weak": 0, "unassessed": 0}
+    starts = _line_starts(body)
+    for pos, sent in iter_sentences(body):
+        if stats["assessed"] >= max_assessed:
+            break
+        num_m = re.search(r"\[(\d{1,3})\]", sent)
+        entry = None
+        if num_m and 1 <= int(num_m.group(1)) <= len(entries):
+            entry = entries[int(num_m.group(1)) - 1]
+        else:
+            ay = _AUTHORYEAR_CITE_RE.search(sent)
+            if ay:
+                author = (ay.group(1) or ay.group(3) or "").strip().split()[0]
+                year = ay.group(2) or ay.group(4)
+                for e in entries:
+                    if author in e and year in e:
+                        entry = e
+                        break
+        if entry is None or not _STRONG_CLAIM_RE.search(sent):
+            continue
+        stats["strongClaimCitations"] += 1
+        doi_m = DOI_PATTERN.search(entry)
+        title_hint = _entry_title(entry)
+        if not doi_m and not _title_hint_long_enough(title_hint):
+            stats["unassessed"] += 1
+            continue
+        probe = _citation_source_probe(doi=_clean_doi(doi_m.group(0)) if doi_m else "", title=title_hint)
+        if probe["status"] != "matched":
+            stats["unassessed"] += 1
+            continue
+        stats["assessed"] += 1
+        claim_terms = _fit_terms(sent)
+        src_terms = _fit_terms(probe["title"] + " " + probe["abstract"])
+        if len(claim_terms) < 4 or len(src_terms) < 4:
+            continue
+        overlap = claim_terms & src_terms
+        ratio = len(overlap) / min(len(claim_terms), len(src_terms))
+        if ratio < 0.10:
+            stats["weak"] += 1
+            line = _pos_to_line(pos, starts)
+            shared = "、".join(sorted(overlap)[:5]) if overlap else "无"
+            issues.append({
+                "type": "weak_citation_support",
+                "severity": "warning",
+                "line": line,
+                "detail": f"强主张句与所引文献《{probe['title'][:36]}…》词汇契合度仅 {ratio:.0%}（共同词元：{shared}）——请人工确认引文是否支撑该主张",
+            })
+    if stats["unassessed"]:
+        issues.append({"type": "fit_unassessed", "severity": "info", "detail": f"{stats['unassessed']} 处引用无法获取所引文献元数据（网络/未命中），未参与契合评估——不计入门禁失败"})
+    note = f"强主张引用句 {stats['strongClaimCitations']} 处，已评估 {stats['assessed']} 处（上限 {max_assessed}）"
+    return {"ok": not issues, "issues": issues, "summary": stats, "note": note + "；契合度低≠引文错误，warning 级提示人工复核"}
+
+
 # 样本量数字支持千分位逗号（"1,500 名参与者"），解析时去逗号——英文论文常见写法
 ZH_SAMPLE_PATTERN = re.compile(r"(样本量|样本数|样本|被试|受试者|参与者)\s*(?:量|数)?\s*[为约是=:]?\s*(\d{1,3}(?:,\d{3})+|\d{2,6})\s*([名份个人])?")
 EN_SAMPLE_PATTERN = re.compile(r"\b([Nn])\s*=\s*(\d{1,3}(?:,\d{3})+|\d{2,6})\b")
@@ -4284,6 +4413,18 @@ TOOLS = [
         },
     },
     {
+        "name": "check_claim_citation_fit",
+        "description": "引证契合检查（联网+缓存，L2 契合层）：对'带强主张措辞+引注'的句子，比对其词元与所引文献标题/摘要词元的重叠率，过低时提示人工复核。词汇契合度低≠引文错误（warning 级，需人工判断）；无法获取所引文献元数据时诚实降级不计入失败。语义级'源文是否真支持主张'不做（需模型推理）。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "markdown": {"type": "string"},
+                "max_assessed": {"type": "integer", "description": "单次评估句数上限（API 礼貌），默认 15", "default": 15},
+            },
+            "required": ["markdown"],
+        },
+    },
+    {
         "name": "audit_delta",
         "description": "修复增量对比：对修改前后两版跑同一门禁束，输出 已修复/新引入/仍存在 的差集与净改善判定——智能体每轮修改后调用一次即可验证改动质量，避免按下葫芦浮起瓢。",
         "inputSchema": {
@@ -4350,6 +4491,7 @@ _TOOL_DESC_EN = {
     "check_encoding": "Encoding health check (document substrate): U+FFFD replacement chars and (cid:N) PDF-extraction artifacts (unreadable text, error-level), UTF-8-read-as-Latin-1 mojibake signatures, stray control characters, and mid-file BOM. A broken substrate invalidates every line-numbered finding above it.",
     "check_ethics_statements": "Legitimacy-precondition check (gate tower layer P): presence of ethics approval / informed consent, conflict-of-interest disclosure, AI-use disclosure (AIGC compliance), and data availability statements. Missing ethics with human subjects in the text is an error (desk-reject redline); other absences are warnings. Presence only — statement truth is the authors' responsibility.",
     "check_retraction": "Retraction screening (live, gate tower layer L1): checks each cited work against Crossref update-to / relation.is-retracted-by records and retraction-notice title signatures — external API facts, not heuristics. Citing a retracted work is an error (integrity hardline); network failures are reported as unverifiable (info) per the X-grade discipline and never trip the gate.",
+    "check_claim_citation_fit": "Claim-citation fit check (live+cache, gate tower layer L2): for sentences carrying strong-claim wording plus a citation, compares lexical overlap between the claim and the cited source's title/abstract; low overlap suggests manual review. Low fit does not mean a wrong citation (warning-level); sources that cannot be fetched are honestly skipped. Semantic support verification is out of scope (would require model inference).",
     "audit_delta": "Fix-delta comparison: runs the same gate bundle on before/after manuscripts and reports fixed vs introduced vs persisted findings with a net-improvement verdict, so every agent edit round is verified.",
 }
 
@@ -4397,6 +4539,7 @@ _TOOL_DESC_JA = {
     "check_encoding": "エンコーディング健全性検査（文書基盤）：U+FFFD置換文字と(cid:N) PDF抽出残骸（読めない文字、error）、UTF-8をLatin-1誤読した文字化けシグネチャ、異常制御文字、文中BOMを検出。基盤が壊れると行番号証拠は無効化される。",
     "check_ethics_statements": "適法性前提検査（ゲート塔P層）：倫理承認/インフォームド・コンセント、利益相反開示、AI利用開示（AIGC準拠）、データ利用可能性声明の存在確認。人間被験者に言及しつつ倫理声明が欠落の場合はerror（デスクリジェクト級）、その他の欠落はwarning。存在確認のみで真偽は著者の責任。",
     "check_retraction": "撤稿スクリーニング（オンライン、ゲート塔L1層）：Crossref の update-to / relation.is-retracted-by 記録と撤稿声明タイトルにより、引用文献の撤稿状態を確認（外部APIの事実）。撤稿済み文献の引用はerror（誠信の要警戒事項）、ネットワーク失敗はX級規律に従い unverifiable（info）としてゲートを発動しない。",
+    "check_claim_citation_fit": "主張-引用適合検査（オンライン+キャッシュ、ゲート塔L2層）：強い主張表現+引用を含む文について、主張文と被引用文献のタイトル/抄録との語彙重複率を比較し、低過ぎる場合は手動確認を提示。適合度が低い≠引用が誤り（warning）。意味レベルの裏付け検証は対象外（モデル推論が必要）。",
     "audit_delta": "修正差分比較：修正前後の原稿に同一ゲート束を実行し、解決/新規/残存を差集合で報告し、純改善判定を返す。",
 }
 
@@ -4598,6 +4741,8 @@ def _call_tool(name: str, arguments: dict) -> dict:
         return _result_text(json.dumps(check_ethics_statements(_md(args), str(args.get("genre", "empirical"))), ensure_ascii=False))
     if name == "check_retraction":
         return _result_text(json.dumps(check_retraction(_md(args), int(args.get("max_entries", 30))), ensure_ascii=False))
+    if name == "check_claim_citation_fit":
+        return _result_text(json.dumps(check_claim_citation_fit(_md(args), int(args.get("max_assessed", 15))), ensure_ascii=False))
     if name == "audit_delta":
         return _result_text(
             audit_delta(

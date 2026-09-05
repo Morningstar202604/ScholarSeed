@@ -191,5 +191,55 @@ class TestCheckRetraction(unittest.TestCase):
         self.assertEqual(paper_tools.check_retraction("# T\n\n没有文献段。")["checked"], 0)
 
 
+class TestCheckClaimCitationFit(unittest.TestCase):
+    """L2 契合层：强主张句与所引文献的词汇契合度（warning 级，诚实降级）。"""
+
+    MD = (
+        "# T\n\n正文一句铺垫。\n\n"
+        "我们的方法显著优于基线方法（accuracy 提升明显）[1]。"
+        "另一句无关内容，不包含强主张措辞，只是普通描述[2]。\n\n"
+        "## References\n\n"
+        "[1] Ref, A. (2021). Deep neural architectures for protein folding prediction. Nature. https://doi.org/10.1234/folding\n"
+        "[2] Other, B. (2020). Something else entirely different. J. https://doi.org/10.1234/other\n"
+    )
+
+    def _fetch(self, url, headers=None, retries=1):
+        if "folding" in url:
+            return {"message": {"title": ["Deep neural architectures for protein folding prediction"], "abstract": "<p>We study protein structure prediction with transformers.</p>"}}
+        if "other" in url:
+            return {"message": {"title": ["Something else entirely different"]}}
+        raise urllib.error.URLError("no network")
+
+    def test_weak_fit_warns(self):
+        with mock.patch.object(paper_tools, "_fetch_json", side_effect=self._fetch):
+            r = paper_tools.check_claim_citation_fit(self.MD)
+        hit = [i for i in r["issues"] if i["type"] == "weak_citation_support"]
+        self.assertEqual(len(hit), 1)
+        self.assertEqual(hit[0]["severity"], "warning")
+        self.assertEqual(r["summary"]["weak"], 1)
+
+    def test_strong_fit_passes(self):
+        md = (
+            "# T\n\n"
+            "本文的卷积模块显著提升了图像分类的准确率（image classification accuracy）[1]。\n\n"
+            "## References\n\n[1] Ref, A. (2021). Image classification accuracy improvement with convolution. https://doi.org/10.1234/img\n"
+        )
+        with mock.patch.object(paper_tools, "_fetch_json", side_effect=self._fetch):
+            r = paper_tools.check_claim_citation_fit(md)
+        self.assertEqual([i for i in r["issues"] if i["type"] == "weak_citation_support"], [])
+
+    def test_unfetchable_source_skipped_honestly(self):
+        with mock.patch.object(paper_tools, "_fetch_json", side_effect=urllib.error.URLError("down")):
+            r = paper_tools.check_claim_citation_fit(self.MD)
+        self.assertEqual(r["summary"]["assessed"], 0)
+        self.assertEqual(r["summary"]["unassessed"], 1)
+        self.assertTrue(any(i["type"] == "fit_unassessed" for i in r["issues"]))
+
+    def test_no_strong_claims_passes(self):
+        md = "# T\n\n这是普通句子[1]。\n\n## References\n\n[1] A. (2020). B. C.\n"
+        r = paper_tools.check_claim_citation_fit(md)
+        self.assertTrue(r["ok"])
+
+
 if __name__ == "__main__":
     unittest.main()
