@@ -336,5 +336,62 @@ class TestCheckSymbolConsistency(unittest.TestCase):
         self.assertFalse(out["pass"])
 
 
+class TestCheckAbstractPromises(unittest.TestCase):
+    """L3 一致层：摘要承诺必须被正文兑现（零命中才告警）。"""
+
+    def test_unfulfilled_promise_warns(self):
+        md = (
+            "# T\n\n## 摘要\n\n本研究提出量子纠缠对齐框架以解决对齐问题。\n\n"
+            "## 1. 引言\n\n本文讨论的是完全无关的传统图像分割话题。\n"
+        )
+        r = paper_tools.check_abstract_promises(md)
+        hit = [i for i in r["issues"] if i["type"] == "abstract_promise_unfulfilled"]
+        self.assertEqual(len(hit), 1)
+        self.assertEqual(hit[0]["severity"], "warning")
+
+    def test_fulfilled_promise_passes(self):
+        md = (
+            "# T\n\n## 摘要\n\n本研究提出门禁塔模型用于论文质检。\n\n"
+            "## 1. 引言\n\n门禁塔模型共分九层，逐层展开设计。\n"
+        )
+        r = paper_tools.check_abstract_promises(md)
+        self.assertTrue(r["ok"], r["issues"])
+
+    def test_english_promise(self):
+        md = (
+            "# T\n\n## Abstract\n\nWe propose a quantum routing framework for edge devices.\n\n"
+            "## 1. Introduction\n\nThis paper studies classical scheduling only.\n"
+        )
+        r = paper_tools.check_abstract_promises(md)
+        hit = [i for i in r["issues"] if i["type"] == "abstract_promise_unfulfilled"]
+        self.assertEqual(len(hit), 1)
+
+    def test_no_abstract_note(self):
+        md = "# T\n\n## 1. 引言\n\n正文。\n"
+        r = paper_tools.check_abstract_promises(md)
+        self.assertTrue(r["ok"])
+        self.assertIn("note", r["summary"])
+
+    def test_line_number_points_into_abstract(self):
+        md = (
+            "# T\n\n## 摘要\n\n本研究提出霁光分域架构。\n\n"
+            "## 1. 引言\n\n正文只谈传统缓存。\n"
+        )
+        r = paper_tools.check_abstract_promises(md)
+        hit = [i for i in r["issues"] if i["type"] == "abstract_promise_unfulfilled"]
+        self.assertEqual(hit[0]["line"], 5)
+
+    def test_gate_suite_includes_abstract_promises(self):
+        # 摘要承诺是 warning 级门禁：进套件、可报告，但不触发 pass=False（ERROR=0 纪律）
+        md = (
+            "# T\n\n## 摘要\n\n本研究提出玄机万向核心引擎。\n\n"
+            "## 1. 引言\n\n正文与摘要承诺无关，讲的是别的。\n"
+        )
+        out = json.loads(paper_tools.gate_suite(md, gates="abstract_promises"))
+        self.assertTrue(out["pass"])
+        self.assertEqual(out["totalWarnings"], 1)
+        self.assertEqual(out["gates"][0]["issues"][0]["type"], "abstract_promise_unfulfilled")
+
+
 if __name__ == "__main__":
     unittest.main()

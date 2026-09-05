@@ -33,6 +33,7 @@ from paper_ir import (
     _split_body_references,
     _split_sentences,
     iter_sentences,
+    parse_paper_ir,
 )
 
 SERVER_NAME = "paper-tools"
@@ -3312,6 +3313,66 @@ def check_symbol_consistency(markdown: str) -> dict:
     return {"ok": not issues, "issues": issues[:10], "summary": summary, "note": "一符一义冲突=error；符号只核对定义句中的显式映射，未定义先用等归术语检查/人工复核"}
 
 
+# L3 一致层：摘要承诺↔正文兑现。摘要提出的方法/框架在正文中必须再出现——
+# "摘要画大饼、正文没有"是审稿意见 discrepancy between abstract and body 的直接来源。
+_PROMISE_RE = re.compile(
+    r"(?:we|this (?:paper|study|work)|the present (?:paper|study))\s+(?:propose[sd]?|present[sd]?|introduce[sd]?|design[sd]?|develop[sd]?|construct[sd]?)"
+    r"|本研究提出|本文提出|我们提出|本文设计|本研究设计|本文构建|本研究构建|提出了一种|设计了一种|构建了一个",
+    re.I,
+)
+
+
+def _promise_tokens(obj: str) -> set:
+    """承诺对象的关键词元：拉丁实词 + 中文二字 shingle（短段整词保留）。"""
+    toks = {w for w in re.findall(r"[a-z]{3,}", obj.lower()) if w not in _FIT_STOPWORDS}
+    for seg in re.findall(r"[\u4e00-\u9fff]{2,}", obj):
+        if len(seg) <= 4:
+            toks.add(seg)
+        for i in range(len(seg) - 1):
+            toks.add(seg[i : i + 2])
+    return toks
+
+
+def check_abstract_promises(markdown: str) -> dict:
+    """摘要承诺兑现检查（L3 一致层）：摘要中提出的方法/框架必须在正文中再次出现。
+
+    提取摘要中的"承诺句"（we propose / 本研究提出 / 提出了一种…），取承诺对象的
+    关键词元；正文（摘要除外）中**零命中**才告警——宽松阈值设计，避免"正文换了
+    措辞"被误报。缺摘要不在此检查（归 check_abstract）。
+    """
+    if not markdown or not markdown.strip():
+        return {"ok": True, "issues": []}
+    ir = parse_paper_ir(markdown)
+    abstract = ir["abstract"]
+    if not abstract:
+        return {"ok": True, "issues": [], "summary": {"note": "未找到摘要段（摘要质量归 check_abstract）"}}
+    body_minus = "\n".join(s["text"] for s in ir["sections"] if not re.match(r"^(?:摘要|abstract)$", s["title"], flags=re.I))
+    if not body_minus.strip():
+        body_minus = ir["body"].replace(abstract, "")
+    body_terms = _fit_terms(body_minus)
+    full_starts = _line_starts(markdown)
+    offset = markdown.find(abstract.strip()[:24])
+    if offset < 0:
+        offset = 0
+    issues = []
+    stats = {"promises": 0, "unfulfilled": 0}
+    for pos, sent in iter_sentences(abstract, blank_fences=False):
+        m = _PROMISE_RE.search(sent)
+        if not m:
+            continue
+        obj = sent[m.end() :].strip(" 。，,.")
+        if not obj:
+            continue
+        stats["promises"] += 1
+        tokens = _promise_tokens(obj)
+        if tokens and not (tokens & body_terms):
+            stats["unfulfilled"] += 1
+            line = _pos_to_line(offset + pos, full_starts)
+            issues.append({"type": "abstract_promise_unfulfilled", "severity": "warning", "line": line, "detail": f"摘要承诺的「{obj[:24]}…」在正文中零词元命中——请确认正文兑现了摘要承诺，或修改摘要措辞"})
+    summary = {"promises": stats["promises"], "unfulfilled": stats["unfulfilled"]}
+    return {"ok": not issues, "issues": issues, "summary": summary, "note": "零命中才告警（宽松阈值）：正文换措辞不算未兑现；缺摘要归 check_abstract"}
+
+
 # 样本量数字支持千分位逗号（"1,500 名参与者"），解析时去逗号——英文论文常见写法
 ZH_SAMPLE_PATTERN = re.compile(r"(样本量|样本数|样本|被试|受试者|参与者)\s*(?:量|数)?\s*[为约是=:]?\s*(\d{1,3}(?:,\d{3})+|\d{2,6})\s*([名份个人])?")
 EN_SAMPLE_PATTERN = re.compile(r"\b([Nn])\s*=\s*(\d{1,3}(?:,\d{3})+|\d{2,6})\b")
@@ -3922,6 +3983,7 @@ _GATE_REGISTRY = [
     ("stats", "统计红线（p值/效应量/CI）", lambda md, genre: check_stats(md)),
     ("hedging", "断言对冲", lambda md, genre: check_hedging(md)),
     ("sections", "体裁必备章节", lambda md, genre: check_sections(md, genre)),
+    ("abstract_promises", "摘要承诺↔正文兑现", lambda md, genre: check_abstract_promises(md)),
     ("abstract", "摘要四要素", lambda md, genre: check_abstract(md, genre)),
     ("title", "标题质量", lambda md, genre: check_title(md)),
 ]
@@ -4572,6 +4634,11 @@ TOOLS = [
         "inputSchema": {"type": "object", "properties": {"markdown": {"type": "string"}}, "required": ["markdown"]},
     },
     {
+        "name": "check_abstract_promises",
+        "description": "摘要承诺兑现检查（L3 一致层）：提取摘要中的承诺句（we propose / 本研究提出 / 提出了一种…），其对象关键词在正文（摘要除外）中零词元命中才告警——'摘要画大饼、正文没有'是审稿意见 discrepancy between abstract and body 的直接来源。宽松阈值防误报；缺摘要归 check_abstract。",
+        "inputSchema": {"type": "object", "properties": {"markdown": {"type": "string"}}, "required": ["markdown"]},
+    },
+    {
         "name": "audit_delta",
         "description": "修复增量对比：对修改前后两版跑同一门禁束，输出 已修复/新引入/仍存在 的差集与净改善判定——智能体每轮修改后调用一次即可验证改动质量，避免按下葫芦浮起瓢。",
         "inputSchema": {
@@ -4641,6 +4708,7 @@ _TOOL_DESC_EN = {
     "check_claim_citation_fit": "Claim-citation fit check (live+cache, gate tower layer L2): for sentences carrying strong-claim wording plus a citation, compares lexical overlap between the claim and the cited source's title/abstract; low overlap suggests manual review. Low fit does not mean a wrong citation (warning-level); sources that cannot be fetched are honestly skipped. Semantic support verification is out of scope (would require model inference).",
     "check_version_mismatch": "Preprint-to-published version mismatch check (live, gate tower layer L2): when a reference entry carries an arXiv identifier, searches Crossref by title for a formally published version (similarity threshold guards against false matches); a hit that is not the preprint itself suggests updating the citation. Warning-level — citing a preprint is not wrong, but the citation should be refreshed when a published version exists.",
     "check_symbol_consistency": "Symbol consistency check (gate tower layer L3): builds a symbol-to-meaning map from definition sentences ('λ denotes the learning rate' / '设 λ 为学习率'); one symbol defined as two dissimilar meanings is an error (the one-symbol-one-meaning redline), one meaning carried by several symbols is a warning. Fenced code and display math are exempt; Greek characters and LaTeX macro names are normalized before comparison.",
+    "check_abstract_promises": "Abstract-promise fulfillment check (gate tower layer L3): extracts promise sentences from the abstract (we propose / 本研究提出 / 提出了一种…) and reports when the promised object's key terms never appear in the body — the direct source of 'discrepancy between abstract and body' reviewer comments. A lenient zero-overlap threshold avoids false alarms on reworded bodies; missing abstracts belong to check_abstract.",
     "audit_delta": "Fix-delta comparison: runs the same gate bundle on before/after manuscripts and reports fixed vs introduced vs persisted findings with a net-improvement verdict, so every agent edit round is verified.",
 }
 
@@ -4691,6 +4759,7 @@ _TOOL_DESC_JA = {
     "check_claim_citation_fit": "主張-引用適合検査（オンライン+キャッシュ、ゲート塔L2層）：強い主張表現+引用を含む文について、主張文と被引用文献のタイトル/抄録との語彙重複率を比較し、低過ぎる場合は手動確認を提示。適合度が低い≠引用が誤り（warning）。意味レベルの裏付け検証は対象外（モデル推論が必要）。",
     "check_version_mismatch": "プレプリント-正式版不一致検査（オンライン、ゲート塔L2層）：arXiv識別子を含む文献について、タイトルでCrossref検索し正式発表版が存在すれば引用更新を提示（warning）。プレプリント引用自体は誤りではない。",
     "check_symbol_consistency": "記号整合性検査（ゲート塔L3層）：定義文（'λ は学習率を表す'/'λ denotes the learning rate'）から記号→意味マップを構築し、同一記号が異なる意味に定義されればerror（一記号一義のレッドライン）、同一意味に複数記号が使われればwarning。コードブロックとディスプレイ数式は対象外。",
+    "check_abstract_promises": "抄録承诺の履行検査（ゲート塔L3層）：抄録の提案文（we propose/本研究提出）を抽出し、その対象キーワードが本文に全く現れない場合に警告——「抄録と本文の不一致」審査意見の直接の源泉。緩い閾値で誤報を防止。",
     "audit_delta": "修正差分比較：修正前後の原稿に同一ゲート束を実行し、解決/新規/残存を差集合で報告し、純改善判定を返す。",
 }
 
@@ -4898,6 +4967,8 @@ def _call_tool(name: str, arguments: dict) -> dict:
         return _result_text(json.dumps(check_version_mismatch(_md(args), int(args.get("max_entries", 30))), ensure_ascii=False))
     if name == "check_symbol_consistency":
         return _result_text(json.dumps(check_symbol_consistency(_md(args)), ensure_ascii=False))
+    if name == "check_abstract_promises":
+        return _result_text(json.dumps(check_abstract_promises(_md(args)), ensure_ascii=False))
     if name == "audit_delta":
         return _result_text(
             audit_delta(

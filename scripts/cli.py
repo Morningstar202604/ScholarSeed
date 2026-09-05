@@ -102,6 +102,7 @@ CHECKERS = {
     "claim-fit": lambda a: pt.check_claim_citation_fit(pt._md({"markdown": _read(a.file)})),
     "version-mismatch": lambda a: pt.check_version_mismatch(pt._md({"markdown": _read(a.file)})),
     "symbol": lambda a: pt.check_symbol_consistency(pt._md({"markdown": _read(a.file)})),
+    "abstract-promises": lambda a: pt.check_abstract_promises(pt._md({"markdown": _read(a.file)})),
 }
 
 
