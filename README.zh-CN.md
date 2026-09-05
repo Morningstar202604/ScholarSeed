@@ -15,7 +15,7 @@
 
 **41 个确定性 MCP 工具 · 5 项流水线技能 · 70 篇 × 9 学科真实论文校准 · 零依赖（纯标准库）**
 
-与 [AgentSeed](https://gitcode.com/badhope/AgentSeed)（代码防幻觉）组成矩阵：AgentSeed 保证代码不撒谎，ScholarSeed 保证论文能交付——**随便用哪个 AI 写初稿，提交前必须过一道能自证清白的门。**
+与 [AgentSeed](https://github.com/Morningstar202604/AgentSeed)（代码防幻觉）组成矩阵：AgentSeed 保证代码不撒谎，ScholarSeed 保证论文能交付——**随便用哪个 AI 写初稿，提交前必须过一道能自证清白的门。**
 
 > 🇬🇧 English documentation: [README.md](README.md)
 
@@ -268,8 +268,7 @@ LaTeX 支持：word_count / check_structure / proofread / audit_paper 接受 `so
 
 | 平台 | 地址 | 说明 |
 |------|------|------|
-| GitCode（主仓库） | <https://gitcode.com/badhope/ScholarSeed> | 主线开发；在此提 Issue/PR |
-| GitHub 镜像 | <https://github.com/Morningstar202604/ScholarSeed> | 同步镜像（Release 与 star 统计在此） |
+| GitHub（主仓库） | <https://github.com/Morningstar202604/ScholarSeed> | 主线开发；在此提 Issue/PR |
 
 ## CLI（无需智能体）
 
@@ -357,7 +356,7 @@ CI 经 GitHub Actions 在 Python 3.9–3.13 上跑发布门禁（跑在 GitHub �
 <div align="center">
 
 [![Star ScholarSeed](https://img.shields.io/badge/%E2%AD%90_%E7%82%B9%E4%B8%AA_Star-FBBA00?style=for-the-badge)](https://github.com/Morningstar202604/ScholarSeed/stargazers)
-[![提交问题](https://img.shields.io/badge/%F0%9F%90%9B_%E6%8F%90%E4%BA%A4%E9%97%AE%E9%A2%98-2EA043?style=for-the-badge)](https://gitcode.com/badhope/ScholarSeed/issues)
+[![提交问题](https://img.shields.io/badge/%F0%9F%90%9B_%E6%8F%90%E4%BA%A4%E9%97%AE%E9%A2%98-2EA043?style=for-the-badge)](https://github.com/Morningstar202604/ScholarSeed/issues)
 [![参与贡献](https://img.shields.io/badge/%F0%9F%8D%B4_%E5%8F%82%E4%B8%8E%E8%B4%A1%E7%8C%AE-0969DA?style=for-the-badge)](CONTRIBUTING.md)
 
 [![Star History Chart](https://api.star-history.com/svg?repos=Morningstar202604/ScholarSeed&type=Date)](https://star-history.com/#Morningstar202604/ScholarSeed&Date)

@@ -15,7 +15,7 @@
 
 **41 deterministic MCP tools · 5 pipeline skills · calibrated on 70 real arXiv papers · zero dependencies (pure Python stdlib)**
 
-Sister project of [AgentSeed](https://gitcode.com/badhope/AgentSeed): AgentSeed keeps code honest, ScholarSeed keeps papers deliverable — **write with any AI you like, submit only through gates that can prove the manuscript is clean.**
+Sister project of [AgentSeed](https://github.com/Morningstar202604/AgentSeed): AgentSeed keeps code honest, ScholarSeed keeps papers deliverable — **write with any AI you like, submit only through gates that can prove the manuscript is clean.**
 
 > 🇨🇳 中文文档：[README.zh-CN.md](README.zh-CN.md)
 
@@ -271,8 +271,7 @@ No pip install, no virtualenv, no compiled extensions — if `python` runs, Scho
 
 | Platform | URL | Notes |
 |----------|-----|-------|
-| GitCode (primary) | <https://gitcode.com/badhope/ScholarSeed> | Mainline development; file Issues/PRs here |
-| GitHub mirror | <https://github.com/Morningstar202604/ScholarSeed> | Sync mirror (releases & star history tracked here) |
+| GitHub (primary) | <https://github.com/Morningstar202604/ScholarSeed> | Mainline development; file Issues/PRs here |
 
 ## CLI (no agent required)
 
@@ -360,7 +359,7 @@ If ScholarSeed saved you time hunting references or proofreading drafts, one cli
 <div align="center">
 
 [![Star ScholarSeed](https://img.shields.io/badge/%E2%AD%90_Star_this_repo-FBBA00?style=for-the-badge)](https://github.com/Morningstar202604/ScholarSeed/stargazers)
-[![Report an issue](https://img.shields.io/badge/%F0%9F%90%9B_Report_an_issue-2EA043?style=for-the-badge)](https://gitcode.com/badhope/ScholarSeed/issues)
+[![Report an issue](https://img.shields.io/badge/%F0%9F%90%9B_Report_an_issue-2EA043?style=for-the-badge)](https://github.com/Morningstar202604/ScholarSeed/issues)
 [![Fork & contribute](https://img.shields.io/badge/%F0%9F%8D%B4_Fork_%26_contribute-0969DA?style=for-the-badge)](CONTRIBUTING.md)
 
 [![Star History Chart](https://api.star-history.com/svg?repos=Morningstar202604/ScholarSeed&type=Date)](https://star-history.com/#Morningstar202604/ScholarSeed&Date)
