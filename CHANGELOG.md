@@ -18,7 +18,7 @@
   - L3：`check_symbol_consistency` 一符一义——定义句建符号→含义映射，同一符号两种低相似含义=error，同一含义多符号=warning（equations-symbols.md 代码化）；`check_abstract_promises` 摘要承诺兑现——承诺对象在正文零词元命中才告警（宽松阈值防误报）。
   - L4：`check_rigor_declarations` 方法严谨声明完备性——触发场景（t 检验/ANOVA/回归/声称 RCT/发放问卷）核对声明在场：正态性、多重比较校正、效能/样本量、随机盲法、缺失数据；查"声明了没有"，不判"方法选对了没有"。
   - L5：`check_anonymization` 盲审匿名化（需显式 blind=true）——致谢/基金、自引指涉、LaTeX uthor 与 frontmatter 身份字段（error）、本机路径（info），"已隐去/masked"行豁免；`check_units` 计量单位写法一致性——同族单位混用（ml/mL、ug/µg、℃/°C），µ 的 U+00B5/U+03BC 两码位归同族。
-- **gate_suite 离线门禁 19→24 道**（新增 encoding/ethics/symbol/abstract_promises/rigor/units）；`next_actions` 三条计划插入资格声明/撤稿筛查/契合与版本步骤；paper-writing 技能阶段 6/7/8 接线全部新门禁（并修复"残留取证"条目重复）。
+- **gate_suite 离线门禁 19→25 道**（新增 encoding/ethics/symbol/abstract_promises/rigor/units）；`next_actions` 三条计划插入资格声明/撤稿筛查/契合与版本步骤；paper-writing 技能阶段 6/7/8 接线全部新门禁（并修复"残留取证"条目重复）。
 - 新增 69 个回归测试（总数 237→306）。
 
 ### Changed

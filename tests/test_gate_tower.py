@@ -8,8 +8,8 @@ import json
 import os
 import sys
 import unittest
-from unittest import mock
 import urllib.error
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
@@ -57,7 +57,7 @@ class TestCheckEncoding(unittest.TestCase):
     def test_line_numbers_accurate(self):
         md = "# T\n\n正文一行。\n\n坏行 (cid:55) 在第五行。\n"
         r = paper_tools.check_encoding(md)
-        hit = [i for i in r["issues"] if i["type"] == "cid_extracted"][0]
+        hit = next(i for i in r["issues"] if i["type"] == "cid_extracted")
         self.assertEqual(hit["line"], 5)
 
     def test_mcp_registration_roundtrip(self):
@@ -252,7 +252,6 @@ class TestCheckVersionMismatch(unittest.TestCase):
 
     def _fetch(self, url, headers=None, retries=1):
         if "query.title" in url:
-            title = "attention is all you need" if "Attention" in url or "attention" in url.lower() else ""
             items = [{"title": ["Attention is all you need"], "DOI": "10.1234/neurips2017", "type": "proceedings-article"}]
             return {"message": {"items": items}}
         raise urllib.error.URLError("down")

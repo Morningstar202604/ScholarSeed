@@ -4209,7 +4209,7 @@ def gate_suite(markdown: str, gates: str = "", genre: str = "empirical", allow_c
     """组合门禁套件：一次运行选定的离线确定性检查器，输出统一 JSON 判定。
 
     为智能体迭代修复设计：返回 {"pass", "blocking", "gates":[...]}——智能体读取
-    verdict 后自动修复再重跑，直到 pass=true。默认跑全部 24 道门禁；
+    verdict 后自动修复再重跑，直到 pass=true。默认跑全部 25 道门禁；
     gates 参数传逗号分隔子集（如 "style,numbers,stats"）。统计门禁仅实证体裁生效。
     通过判定与 proofread 纪律一致：ERROR 计数为 0。
     """
