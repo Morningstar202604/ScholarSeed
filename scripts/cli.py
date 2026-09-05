@@ -100,6 +100,7 @@ CHECKERS = {
     "ethics": lambda a: pt.check_ethics_statements(pt._md({"markdown": _read(a.file)}), a.genre),
     "retraction": lambda a: pt.check_retraction(pt._md({"markdown": _read(a.file)})),
     "claim-fit": lambda a: pt.check_claim_citation_fit(pt._md({"markdown": _read(a.file)})),
+    "version-mismatch": lambda a: pt.check_version_mismatch(pt._md({"markdown": _read(a.file)})),
 }
 
 

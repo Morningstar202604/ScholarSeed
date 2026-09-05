@@ -241,5 +241,50 @@ class TestCheckClaimCitationFit(unittest.TestCase):
         self.assertTrue(r["ok"])
 
 
+class TestCheckVersionMismatch(unittest.TestCase):
+    """L2 契合层：arXiv 预印本已有正式发表版时提示更新（warning）。"""
+
+    MD = (
+        "# T\n\n## References\n\n"
+        "[1] Vaswani, A. (2017). Attention is all you need. arXiv preprint arXiv:1706.03762.\n"
+        "[2] Author, B. (2019). Only ever a preprint study here. arXiv:1901.00001.\n"
+    )
+
+    def _fetch(self, url, headers=None, retries=1):
+        if "query.title" in url:
+            title = "attention is all you need" if "Attention" in url or "attention" in url.lower() else ""
+            items = [{"title": ["Attention is all you need"], "DOI": "10.1234/neurips2017", "type": "proceedings-article"}]
+            return {"message": {"items": items}}
+        raise urllib.error.URLError("down")
+
+    def test_published_version_found_warns(self):
+        with mock.patch.object(paper_tools, "_fetch_json", side_effect=self._fetch):
+            r = paper_tools.check_version_mismatch(self.MD)
+        hit = [i for i in r["issues"] if i["type"] == "preprint_published_mismatch"]
+        self.assertEqual(len(hit), 1)
+        self.assertEqual(hit[0]["severity"], "warning")
+        self.assertEqual(r["summary"]["publishedFound"], 1)
+
+    def test_arxiv_self_hit_not_flagged(self):
+        def fetch(url, headers=None, retries=1):
+            if "query.title" in url:
+                return {"message": {"items": [{"title": ["Only ever a preprint study here"], "DOI": "10.48550/arXiv.1901.00001"}]}}
+            raise urllib.error.URLError("down")
+
+        md = "# T\n\n## References\n\n[1] Author, B. (2019). Only ever a preprint study here. arXiv:1901.00001.\n"
+        with mock.patch.object(paper_tools, "_fetch_json", side_effect=fetch):
+            r = paper_tools.check_version_mismatch(md)
+        self.assertEqual([i for i in r["issues"] if i["type"] == "preprint_published_mismatch"], [])
+        self.assertEqual(r["summary"]["publishedFound"], 0)
+
+    def test_non_arxiv_references_ignored(self):
+        md = "# T\n\n## References\n\n[1] Plain, C. (2020). A normal journal article. J. of Tests.\n"
+        r = paper_tools.check_version_mismatch(md)
+        self.assertEqual(r["summary"]["arxivEntries"], 0)
+
+    def test_no_arxiv_entries(self):
+        self.assertTrue(paper_tools.check_version_mismatch("")["ok"])
+
+
 if __name__ == "__main__":
     unittest.main()

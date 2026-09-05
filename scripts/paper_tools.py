@@ -3183,6 +3183,58 @@ def check_claim_citation_fit(markdown: str, max_assessed: int = 15) -> dict:
     return {"ok": not issues, "issues": issues, "summary": stats, "note": note + "；契合度低≠引文错误，warning 级提示人工复核"}
 
 
+# L2 契合层：预印本-正式版错配。引用 arXiv 版而正式发表版已存在，
+# 是审稿人常见 nitpick（引用元数据过时），确定性可查。
+_ARXIV_ID_RE = re.compile(r"arxiv[:\s]*(\d{4}\.\d{4,5})(?:v\d+)?|arxiv\s*preprint", re.I)
+
+
+def check_version_mismatch(markdown: str, max_entries: int = 30) -> dict:
+    """预印本-正式版错配检查（L2 契合层，联网）：引用 arXiv 预印本但正式发表版已存在。
+
+    文献表条目含 arXiv 标识时，按标题在 Crossref 检索正式版本（相似度阈值防误配，
+    复用 citation_verify 同一检索管线）；命中且非预印本自身（10.48550 DOI / report
+    类型）即提示更新。仅存在预印本的文献不受影响。severity=warning。
+    """
+    if not markdown or not markdown.strip():
+        return {"ok": True, "issues": []}
+    entries = _extract_reference_entries(markdown)
+    if not entries:
+        return {"ok": True, "issues": [], "summary": {"note": "未识别到文献条目"}}
+    issues = []
+    stats = {"arxivEntries": 0, "publishedFound": 0, "unassessed": 0}
+    for idx, entry in enumerate(entries[:max_entries], 1):
+        if not _ARXIV_ID_RE.search(entry):
+            continue
+        stats["arxivEntries"] += 1
+        title_hint = _entry_title(entry)
+        if not _title_hint_long_enough(title_hint):
+            stats["unassessed"] += 1
+            continue
+        try:
+            matched = _crossref_by_title(title_hint)
+        except Exception:
+            stats["unassessed"] += 1
+            continue
+        if not matched.get("verified"):
+            stats["unassessed"] += 1
+            continue
+        doi = str(matched.get("doi", "") or "")
+        mtype = str(matched.get("type", "") or "")
+        if doi.startswith("10.48550/") or "report" in mtype.lower() or "arxiv" in doi.lower():
+            continue  # 命中的是预印本自身记录，不算错配
+        stats["publishedFound"] += 1
+        entry_short = entry[:44].replace("\n", " ")
+        issues.append({
+            "type": "preprint_published_mismatch",
+            "severity": "warning",
+            "line": idx,
+            "detail": f"第 {idx} 条「{entry_short}…」引用 arXiv 预印本，但已存在正式发表版《{str(matched.get('title', ''))[:40]}》(DOI: {doi or '未知'})——建议更新引用（部分文献可能仅有预印本，请核实）",
+        })
+    if stats["unassessed"]:
+        issues.append({"type": "version_unassessed", "severity": "info", "detail": f"{stats['unassessed']} 条 arXiv 条目无法核验正式版（网络/标题线索不足），不计入门禁失败"})
+    return {"ok": not issues, "issues": issues, "summary": stats, "note": "warning 级：预印本引用并非错误，但正式版已存在时应更新引用元数据"}
+
+
 # 样本量数字支持千分位逗号（"1,500 名参与者"），解析时去逗号——英文论文常见写法
 ZH_SAMPLE_PATTERN = re.compile(r"(样本量|样本数|样本|被试|受试者|参与者)\s*(?:量|数)?\s*[为约是=:]?\s*(\d{1,3}(?:,\d{3})+|\d{2,6})\s*([名份个人])?")
 EN_SAMPLE_PATTERN = re.compile(r"\b([Nn])\s*=\s*(\d{1,3}(?:,\d{3})+|\d{2,6})\b")
@@ -4425,6 +4477,18 @@ TOOLS = [
         },
     },
     {
+        "name": "check_version_mismatch",
+        "description": "预印本-正式版错配检查（联网，L2 契合层）：文献条目含 arXiv 标识时，按标题在 Crossref 检索正式发表版（相似度阈值防误配）；命中且非预印本自身即提示更新引用。warning 级——预印本引用并非错误，但正式版已存在时应更新元数据。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "markdown": {"type": "string", "description": "含 References/参考文献 段的论文全文"},
+                "max_entries": {"type": "integer", "description": "单次核查条数上限，默认 30", "default": 30},
+            },
+            "required": ["markdown"],
+        },
+    },
+    {
         "name": "audit_delta",
         "description": "修复增量对比：对修改前后两版跑同一门禁束，输出 已修复/新引入/仍存在 的差集与净改善判定——智能体每轮修改后调用一次即可验证改动质量，避免按下葫芦浮起瓢。",
         "inputSchema": {
@@ -4492,6 +4556,7 @@ _TOOL_DESC_EN = {
     "check_ethics_statements": "Legitimacy-precondition check (gate tower layer P): presence of ethics approval / informed consent, conflict-of-interest disclosure, AI-use disclosure (AIGC compliance), and data availability statements. Missing ethics with human subjects in the text is an error (desk-reject redline); other absences are warnings. Presence only — statement truth is the authors' responsibility.",
     "check_retraction": "Retraction screening (live, gate tower layer L1): checks each cited work against Crossref update-to / relation.is-retracted-by records and retraction-notice title signatures — external API facts, not heuristics. Citing a retracted work is an error (integrity hardline); network failures are reported as unverifiable (info) per the X-grade discipline and never trip the gate.",
     "check_claim_citation_fit": "Claim-citation fit check (live+cache, gate tower layer L2): for sentences carrying strong-claim wording plus a citation, compares lexical overlap between the claim and the cited source's title/abstract; low overlap suggests manual review. Low fit does not mean a wrong citation (warning-level); sources that cannot be fetched are honestly skipped. Semantic support verification is out of scope (would require model inference).",
+    "check_version_mismatch": "Preprint-to-published version mismatch check (live, gate tower layer L2): when a reference entry carries an arXiv identifier, searches Crossref by title for a formally published version (similarity threshold guards against false matches); a hit that is not the preprint itself suggests updating the citation. Warning-level — citing a preprint is not wrong, but the citation should be refreshed when a published version exists.",
     "audit_delta": "Fix-delta comparison: runs the same gate bundle on before/after manuscripts and reports fixed vs introduced vs persisted findings with a net-improvement verdict, so every agent edit round is verified.",
 }
 
@@ -4540,6 +4605,7 @@ _TOOL_DESC_JA = {
     "check_ethics_statements": "適法性前提検査（ゲート塔P層）：倫理承認/インフォームド・コンセント、利益相反開示、AI利用開示（AIGC準拠）、データ利用可能性声明の存在確認。人間被験者に言及しつつ倫理声明が欠落の場合はerror（デスクリジェクト級）、その他の欠落はwarning。存在確認のみで真偽は著者の責任。",
     "check_retraction": "撤稿スクリーニング（オンライン、ゲート塔L1層）：Crossref の update-to / relation.is-retracted-by 記録と撤稿声明タイトルにより、引用文献の撤稿状態を確認（外部APIの事実）。撤稿済み文献の引用はerror（誠信の要警戒事項）、ネットワーク失敗はX級規律に従い unverifiable（info）としてゲートを発動しない。",
     "check_claim_citation_fit": "主張-引用適合検査（オンライン+キャッシュ、ゲート塔L2層）：強い主張表現+引用を含む文について、主張文と被引用文献のタイトル/抄録との語彙重複率を比較し、低過ぎる場合は手動確認を提示。適合度が低い≠引用が誤り（warning）。意味レベルの裏付け検証は対象外（モデル推論が必要）。",
+    "check_version_mismatch": "プレプリント-正式版不一致検査（オンライン、ゲート塔L2層）：arXiv識別子を含む文献について、タイトルでCrossref検索し正式発表版が存在すれば引用更新を提示（warning）。プレプリント引用自体は誤りではない。",
     "audit_delta": "修正差分比較：修正前後の原稿に同一ゲート束を実行し、解決/新規/残存を差集合で報告し、純改善判定を返す。",
 }
 
@@ -4743,6 +4809,8 @@ def _call_tool(name: str, arguments: dict) -> dict:
         return _result_text(json.dumps(check_retraction(_md(args), int(args.get("max_entries", 30))), ensure_ascii=False))
     if name == "check_claim_citation_fit":
         return _result_text(json.dumps(check_claim_citation_fit(_md(args), int(args.get("max_assessed", 15))), ensure_ascii=False))
+    if name == "check_version_mismatch":
+        return _result_text(json.dumps(check_version_mismatch(_md(args), int(args.get("max_entries", 30))), ensure_ascii=False))
     if name == "audit_delta":
         return _result_text(
             audit_delta(
