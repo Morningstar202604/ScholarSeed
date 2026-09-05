@@ -1209,6 +1209,7 @@ class TestProtocolHandshake(unittest.TestCase):
                 "check_abstract_promises",
                 "check_rigor_declarations",
                 "check_anonymization",
+                "check_units",
             },
         )
 

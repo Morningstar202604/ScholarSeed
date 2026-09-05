@@ -476,5 +476,45 @@ class TestCheckAnonymization(unittest.TestCase):
         self.assertEqual([i for i in r["issues"] if i["type"] == "funding_in_blind"], [])
 
 
+class TestCheckUnits(unittest.TestCase):
+    """L5 规范层：同族单位写法混用告警，html 等词内命中不误报。"""
+
+    def test_ml_variant_mixing_warns(self):
+        r = paper_tools.check_units("# T\n\n加入 5 ml 溶液，再加入 10 mL 缓冲液。\n")
+        hit = [i for i in r["issues"] if i["type"] == "unit_style_inconsistent"]
+        self.assertEqual(len(hit), 1)
+        self.assertEqual(hit[0]["severity"], "warning")
+        self.assertIn("mL", hit[0]["detail"])
+
+    def test_consistent_units_pass(self):
+        r = paper_tools.check_units("# T\n\n加入 5 mL 溶液，再加入 10 mL 缓冲液，共 15 mL。\n")
+        self.assertTrue(r["ok"], r["issues"])
+
+    def test_micro_variant_mixing(self):
+        r = paper_tools.check_units("# T\n\n质量为 5 ug，另一组为 10 µg。\n")
+        hit = [i for i in r["issues"] if i["type"] == "unit_style_inconsistent"]
+        self.assertEqual(len(hit), 1)
+        self.assertIn("ug", hit[0]["detail"])
+        self.assertIn("µg", hit[0]["detail"])
+
+    def test_degree_mixing(self):
+        r = paper_tools.check_units("# T\n\n37 ℃ 孵育，随后升温至 42 °C。\n")
+        hit = [i for i in r["issues"] if i["type"] == "unit_style_inconsistent"]
+        self.assertEqual(len(hit), 1)
+
+    def test_no_false_positive_inside_words(self):
+        r = paper_tools.check_units("# T\n\nThe HTML parser and the krum score are unrelated words.\n")
+        self.assertTrue(r["ok"], r["issues"])
+
+    def test_fenced_code_exempt(self):
+        md = "# T\n\n```\nvolume = 5 ml\n```\n\n正文用量为 5 mL。\n"
+        r = paper_tools.check_units(md)
+        self.assertTrue(r["ok"], r["issues"])
+
+    def test_gate_suite_includes_units(self):
+        out = json.loads(paper_tools.gate_suite("# T\n\n5 ml 与 10 mL 混用。\n", gates="units"))
+        self.assertEqual(out["totalWarnings"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

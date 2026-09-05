@@ -3489,10 +3489,71 @@ def check_anonymization(markdown: str, blind: bool = False, source_format: str =
             issues.append({"type": "metadata_identity_leak", "severity": "error", "line": _pos_to_line(m.start(), starts), "detail": f"frontmatter 作者字段（{m.group(1)[:24]}）——双盲稿必须移除"})
     for m in _PATH_LEAK_RE.finditer(body):
         issues.append({"type": "path_leak", "severity": "info", "line": _pos_to_line(m.start(), starts), "detail": f"正文含本机路径 '{m.group(0)}'——可能泄漏用户名/机构信息，建议改用相对路径"})
-    counts = {}
+    seen, deduped = set(), []
     for i in issues:
+        key = (i["type"], i["line"])
+        if key not in seen:
+            seen.add(key)
+            deduped.append(i)
+    counts = {}
+    for i in deduped:
         counts[i["type"]] = counts.get(i["type"], 0) + 1
-    return {"ok": not issues, "issues": issues[:12], "summary": counts, "note": "盲审违规=error；'已隐去/masked'标注行豁免；路径泄漏为 info。身份元数据是否合规以目标期刊双盲规程为准"}
+    return {"ok": not deduped, "issues": deduped[:12], "summary": counts, "note": "盲审违规=error；'已隐去/masked'标注行豁免；路径泄漏为 info。身份元数据是否合规以目标期刊双盲规程为准"}
+
+
+# L5 规范层：计量单位写法一致性。只做"同族单位混用"这种确定性比对
+#（ml/mL、ug/µg、℃/°C…），不判单位用得对不对。µ 有 U+00B5/U+03BC 两码位，
+# 加 u 代写变体；数字后空格风格也纳入一致性观察。
+_UNIT_FAMILIES = [
+    ("mL", ("ml", "mL")),
+    ("µL", ("uL", "ul", "µL", "µl", "μL", "μl")),
+    ("µg", ("ug", "µg", "μg")),
+    ("µm", ("um", "µm", "μm")),
+    ("kg", ("Kg", "KG", "kg")),
+    ("°C", ("°C", "°c", "℃")),
+    ("kHz", ("KHz", "khz", "kHz")),
+    ("MHz", ("Mhz", "MHZ", "MHz")),
+    ("kPa", ("KPa", "KPA", "kPa", "kpa")),
+]
+_UNIT_ANY_RE = re.compile(
+    r"(?<![A-Za-z°])(ml|mL|uL|ul|µL|µl|μL|μl|ug|µg|μg|um|µm|μm|Kg|KG|kg|°C|°c|℃|KHz|khz|kHz|Mhz|MHZ|MHz|KPa|KPA|kPa|kpa)(?![A-Za-z])"
+)
+
+
+def check_units(markdown: str) -> dict:
+    """计量单位写法一致性检查（L5 规范层）：同族单位多种写法混用时告警。
+
+    单位的正确选用是领域问题，工具不做；但同一篇稿子同时出现 '5 ml' 与
+    '10 mL'、'5 ug' 与 '10 µg'、'37 ℃' 与 '37 °C' 是确定的排版不一致——
+    编辑部与审稿人可见的低级观感伤害。µ 的两个 Unicode 码位（U+00B5/U+03BC）
+    与 u 代写均归同族比对。围栏代码不参与。severity=warning。
+    """
+    if not markdown or not markdown.strip():
+        return {"ok": True, "issues": []}
+    body, _refs = _split_body_references(markdown)
+    body = _blank_fences(body)
+    starts = _line_starts(body)
+    family_hits = {}
+    for m in _UNIT_ANY_RE.finditer(body):
+        token = m.group(1)
+        for canonical, variants in _UNIT_FAMILIES:
+            if token in variants:
+                line = _pos_to_line(m.start(), starts)
+                spaced = bool(re.search(r"\d\s$", body[max(0, m.start() - 3) : m.start()]))
+                family_hits.setdefault(canonical, []).append((token, spaced, line))
+                break
+    issues = []
+    for canonical, hits in sorted(family_hits.items()):
+        variants = sorted({h[0] for h in hits})
+        if len(variants) < 2:
+            continue
+        spaced = {h[1] for h in hits}
+        detail = f"单位写法不统一：{' 与 '.join(variants)} 混用（规范形式 {canonical}）"
+        if len(spaced) > 1:
+            detail += "；数字与单位间空格风格也不一致"
+        first = hits[0]
+        issues.append({"type": "unit_style_inconsistent", "severity": "warning", "line": first[2], "detail": detail + f"——首次混用见 L{first[2]}，请全文统一"})
+    return {"ok": not issues, "issues": issues[:8], "summary": {"familiesUsed": len(family_hits), "inconsistent": len(issues)}, "note": "只比对同族写法混用，不判单位选用对错；µ 的 U+00B5/U+03BC 两码位归同族"}
 
 
 # 样本量数字支持千分位逗号（"1,500 名参与者"），解析时去逗号——英文论文常见写法
@@ -4104,6 +4165,7 @@ _GATE_REGISTRY = [
     ("symbol", "符号一致性（一符一义/术语-符号漂移）", lambda md, genre: check_symbol_consistency(md)),
     ("stats", "统计红线（p值/效应量/CI）", lambda md, genre: check_stats(md)),
     ("rigor", "方法严谨声明完备性（仅实证体裁）", lambda md, genre: check_rigor_declarations(md, genre)),
+    ("units", "计量单位写法一致性", lambda md, genre: check_units(md)),
     ("hedging", "断言对冲", lambda md, genre: check_hedging(md)),
     ("sections", "体裁必备章节", lambda md, genre: check_sections(md, genre)),
     ("abstract_promises", "摘要承诺↔正文兑现", lambda md, genre: check_abstract_promises(md)),
@@ -4787,6 +4849,11 @@ TOOLS = [
         },
     },
     {
+        "name": "check_units",
+        "description": "计量单位写法一致性检查（L5 规范层）：同族单位多种写法混用（ml/mL、ug/µg、℃/°C、KHz/kHz…）时告警，µ 的 U+00B5/U+03BC 两码位与 u 代写归同族比对，数字-单位空格风格不一致一并提示。只比对写法混用（warning），不判单位选用对错；围栏代码不参与。",
+        "inputSchema": {"type": "object", "properties": {"markdown": {"type": "string"}}, "required": ["markdown"]},
+    },
+    {
         "name": "audit_delta",
         "description": "修复增量对比：对修改前后两版跑同一门禁束，输出 已修复/新引入/仍存在 的差集与净改善判定——智能体每轮修改后调用一次即可验证改动质量，避免按下葫芦浮起瓢。",
         "inputSchema": {
@@ -4859,6 +4926,7 @@ _TOOL_DESC_EN = {
     "check_abstract_promises": "Abstract-promise fulfillment check (gate tower layer L3): extracts promise sentences from the abstract (we propose / 本研究提出 / 提出了一种…) and reports when the promised object's key terms never appear in the body — the direct source of 'discrepancy between abstract and body' reviewer comments. A lenient zero-overlap threshold avoids false alarms on reworded bodies; missing abstracts belong to check_abstract.",
     "check_rigor_declarations": "Methodological rigor declaration check (gate tower layer L4, empirical/thesis genres): when a trigger scenario is detected (t-tests/ANOVA/regression, claimed RCT, questionnaire surveys), verifies the corresponding statement is present — normality testing, multiple-comparison correction, power/sample-size justification, randomization/blinding, missing-data handling. Presence only (warnings); whether the chosen method is correct is outside text-tool scope.",
     "check_anonymization": "Blind-review anonymization check (gate tower layer L5, requires explicit blind=true): detects identity leaks in double-blind submissions — acknowledgments/funding sections, self-referring phrases like 'our previous work', non-empty LaTeX \\author/\\affiliation/\\thanks and frontmatter author fields (errors), and local filesystem paths (info). Lines marked as masked/redacted are exempt. With blind=false it honestly reports itself not applicable — single-blind/open review needs no anonymization.",
+    "check_units": "Measurement-unit style consistency check (gate tower layer L5): warns when the same unit family is written multiple ways (ml/mL, ug/µg, ℃/°C, KHz/kHz…); both Unicode codepoints of µ (U+00B5/U+03BC) and the u-substitute belong to one family, and digit-unit spacing inconsistency is flagged alongside. Compares writing styles only (warnings), not whether the unit itself is appropriate; fenced code exempt.",
     "audit_delta": "Fix-delta comparison: runs the same gate bundle on before/after manuscripts and reports fixed vs introduced vs persisted findings with a net-improvement verdict, so every agent edit round is verified.",
 }
 
@@ -4912,6 +4980,7 @@ _TOOL_DESC_JA = {
     "check_abstract_promises": "抄録承诺の履行検査（ゲート塔L3層）：抄録の提案文（we propose/本研究提出）を抽出し、その対象キーワードが本文に全く現れない場合に警告——「抄録と本文の不一致」審査意見の直接の源泉。緩い閾値で誤報を防止。",
     "check_rigor_declarations": "方法論的厳密性声明検査（ゲート塔L4層、実証/学位論文体裁）：トリガー検出（t検定/ANOVA/RCT/アンケート等）後に対応する声明の存在を確認——正規性検定、多重比較補正、検定力/サンプルサイズ、ランダム化/盲検、欠損データ。声明の存在のみ確認（warning）。",
     "check_anonymization": "盲検匿名化検査（ゲート塔L5層、blind=true が必要）：ダブルブラインド稿の身元漏れを検出——謝辞/資金セクション、自著先行研究への言及、LaTeX \\author/\\affiliation/\\thanks と frontmatter 著者欄（error）、ローカルパス（info）。マスク済み記載行は免除。blind=false では未適用と正直に返す。",
+    "check_units": "計量単位表記整合性検査（ゲート塔L5層）：同じ単位族の複数表記（ml/mL、ug/µg、℃/°C など）の混用を警告。µ の2つのUnicodeコードポイントと u 代写は同族、数字-単位間スペースも対象。表記の比較のみ（warning）。",
     "audit_delta": "修正差分比較：修正前後の原稿に同一ゲート束を実行し、解決/新規/残存を差集合で報告し、純改善判定を返す。",
 }
 
@@ -5125,6 +5194,8 @@ def _call_tool(name: str, arguments: dict) -> dict:
         return _result_text(json.dumps(check_rigor_declarations(_md(args), str(args.get("genre", "empirical"))), ensure_ascii=False))
     if name == "check_anonymization":
         return _result_text(json.dumps(check_anonymization(_md(args), bool(args.get("blind", False)), str(args.get("source_format", "markdown"))), ensure_ascii=False))
+    if name == "check_units":
+        return _result_text(json.dumps(check_units(_md(args)), ensure_ascii=False))
     if name == "audit_delta":
         return _result_text(
             audit_delta(

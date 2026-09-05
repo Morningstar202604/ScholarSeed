@@ -105,6 +105,7 @@ CHECKERS = {
     "abstract-promises": lambda a: pt.check_abstract_promises(pt._md({"markdown": _read(a.file)})),
     "rigor": lambda a: pt.check_rigor_declarations(pt._md({"markdown": _read(a.file)}), a.genre),
     "blind": lambda a: pt.check_anonymization(pt._md({"markdown": _read(a.file)}), blind=a.blind),
+    "units": lambda a: pt.check_units(pt._md({"markdown": _read(a.file)})),
 }
 
 
