@@ -286,5 +286,55 @@ class TestCheckVersionMismatch(unittest.TestCase):
         self.assertTrue(paper_tools.check_version_mismatch("")["ok"])
 
 
+class TestCheckSymbolConsistency(unittest.TestCase):
+    """L3 一致层：一符一义红线（error）与术语-符号漂移（warning）。"""
+
+    def test_same_symbol_two_meanings_is_error(self):
+        md = (
+            "# T\n\n## 1. 方法\n\n"
+            "设 λ 表示学习率，训练中固定不变。\n\n"
+            "在第 3 节中，λ 表示正则化系数。\n"
+        )
+        r = paper_tools.check_symbol_consistency(md)
+        hit = [i for i in r["issues"] if i["type"] == "symbol_conflict"]
+        self.assertEqual(len(hit), 1)
+        self.assertEqual(hit[0]["severity"], "error")
+        self.assertIn("学习率", hit[0]["detail"])
+
+    def test_consistent_symbol_passes(self):
+        md = "# T\n\n设 μ 表示动量系数。实验中 μ 表示动量系数且取 0.9。\n"
+        r = paper_tools.check_symbol_consistency(md)
+        self.assertTrue(r["ok"], r["issues"])
+
+    def test_one_term_multiple_symbols_warns(self):
+        md = "# T\n\n记 α 为学习率。记 β 为学习率。\n"
+        r = paper_tools.check_symbol_consistency(md)
+        hit = [i for i in r["issues"] if i["type"] == "term_symbol_drift"]
+        self.assertEqual(len(hit), 1)
+        self.assertEqual(hit[0]["severity"], "warning")
+
+    def test_english_denotes_conflict(self):
+        md = "# T\n\nwhere λ denotes the learning rate of the optimizer.\n\nIn the appendix, λ denotes the momentum coefficient of SGD.\n"
+        r = paper_tools.check_symbol_consistency(md)
+        hit = [i for i in r["issues"] if i["type"] == "symbol_conflict"]
+        self.assertEqual(len(hit), 1)
+
+    def test_greek_char_and_latex_macro_normalized(self):
+        md = "# T\n\n设 $\\lambda$ 表示学习率。\n\n附录中，λ 表示学习率。\n"
+        r = paper_tools.check_symbol_consistency(md)
+        self.assertEqual(r["summary"]["symbolsDefined"], 1)
+        self.assertTrue(r["ok"])
+
+    def test_fenced_code_exempt(self):
+        md = "# T\n\n```\n设 x 表示 fenced 内容\n```\n\n设 x 表示特征向量。\n"
+        r = paper_tools.check_symbol_consistency(md)
+        self.assertEqual(r["summary"]["symbolsDefined"], 1)
+
+    def test_gate_suite_includes_symbol(self):
+        md = "# T\n\n设 σ 表示标准差。\n\n后文中 σ 表示 sigmoid 函数。\n"
+        out = json.loads(paper_tools.gate_suite(md, gates="symbol"))
+        self.assertFalse(out["pass"])
+
+
 if __name__ == "__main__":
     unittest.main()

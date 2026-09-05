@@ -3235,6 +3235,83 @@ def check_version_mismatch(markdown: str, max_entries: int = 30) -> dict:
     return {"ok": not issues, "issues": issues, "summary": stats, "note": "warning 级：预印本引用并非错误，但正式版已存在时应更新引用元数据"}
 
 
+# L3 一致层：一符一义。equations-symbols.md 知识（符号纪律）的代码化。
+# 同一符号被定义为两个不同含义 = error（读者必然误读）；同一含义被多个
+# 符号表示 = warning（约定漂移）。希腊字符与 LaTeX 命名归一化后比对。
+_GREEK_NAME_MAP = {
+    "α": "alpha", "β": "beta", "γ": "gamma", "δ": "delta", "ε": "epsilon", "ζ": "zeta", "η": "eta",
+    "θ": "theta", "ι": "iota", "κ": "kappa", "λ": "lambda", "μ": "mu", "ν": "nu", "ξ": "xi",
+    "π": "pi", "ρ": "rho", "σ": "sigma", "τ": "tau", "υ": "upsilon", "φ": "phi", "χ": "chi",
+    "ψ": "psi", "ω": "omega",
+}
+_SYM_ATOM = (
+    r"(?:\\(?:alpha|beta|gamma|delta|epsilon|varepsilon|zeta|eta|theta|iota|kappa|lambda|mu|nu|xi|pi|rho|sigma|tau|upsilon|phi|varphi|chi|psi|omega|Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Upsilon|Phi|Psi|Omega)\b"
+    r"|[A-Za-zαβγδεζηθικλμνξπρστυφχψωΓΔΘΛΞΠΣΥΦΨΩ])(?:_\{?[A-Za-z0-9]+\}?)?"
+)
+_SYMBOL_DEF_PATTERNS = [
+    re.compile(rf"({ _SYM_ATOM })\s*(?:表示|记作|记为|定义为|是指|指的是|代表)\s*([^。，,；;、\n]{{2,20}})"),
+    re.compile(rf"(?:设|令|记|其中|这里)\s*({ _SYM_ATOM })\s*为\s*([^。，,；;、\n]{{2,20}})"),
+    re.compile(rf"\b(?:where|let)\s+({ _SYM_ATOM })\s+(?:be|=|is)\s+(?:the\s+)?([^.,;:\n]{{3,30}})", re.I),
+    re.compile(rf"\b({ _SYM_ATOM })\s+denotes?\s+(?:the\s+)?([^.,;:\n]{{3,30}})", re.I),
+    re.compile(rf"\b({ _SYM_ATOM })\s+(?:stands for|is defined as|represents)\s+(?:the\s+)?([^.,;:\n]{{3,30}})", re.I),
+]
+
+
+def _normalize_symbol(raw: str) -> str:
+    s = raw.strip().strip("$").replace("\\", "").replace("{", "").replace("}", "").replace("_", "").strip().lower()
+    return _GREEK_NAME_MAP.get(s, s)
+
+
+def _normalize_term(raw: str) -> str:
+    return re.sub(r"[\s_\-]+", "", raw).strip().strip("的").lower()
+
+
+def check_symbol_consistency(markdown: str) -> dict:
+    """符号一致性检查（L3 一致层）：一符一义红线与术语-符号漂移。
+
+    从定义句（"λ 表示学习率"/"where λ denotes the learning rate"/"设 λ 为…"）
+    建立 符号→含义 映射：同一符号映射到相似度低于阈值的两个含义即 error
+    （读者必然误读）；同一含义被多个符号表示为 warning。围栏与显示公式
+    ($$…$$) 不参与。只核对定义句可机械解析的情形——未定义先用等语义问题
+    归 check_terms / 人工复核。
+    """
+    if not markdown or not markdown.strip():
+        return {"ok": True, "issues": []}
+    body, _refs = _split_body_references(markdown)
+    body = _blank_fences(body)
+    body = re.sub(r"\$\$.*?\$\$", lambda m: "\n" * m.group(0).count("\n"), body, flags=re.S)
+    starts = _line_starts(body)
+    defs = {}
+    for pos, sent in iter_sentences(body, blank_fences=False):
+        line = _pos_to_line(pos, starts)
+        for pat in _SYMBOL_DEF_PATTERNS:
+            for m in pat.finditer(sent):
+                sym_raw, term_raw = m.group(1), m.group(2)
+                sym_norm = _normalize_symbol(sym_raw)
+                term_norm = _normalize_term(term_raw)
+                if not sym_norm or len(term_norm) < 2 or term_norm[0].isdigit():
+                    continue
+                defs.setdefault(sym_norm, []).append((_normalize_term(term_raw), term_raw.strip(), line))
+    issues = []
+    for sym_norm, lst in sorted(defs.items()):
+        base_norm, base_raw, base_line = lst[0]
+        for t_norm, t_raw, line in lst[1:]:
+            if t_norm != base_norm and _title_similarity(base_norm, t_norm) < 0.4:
+                issues.append({"type": "symbol_conflict", "severity": "error", "line": line, "detail": f"一符一义冲突：符号 '{sym_norm}' 在 L{base_line} 定义为「{base_raw}」，又在 L{line} 定义为「{t_raw}」——同一符号两种含义，读者必然误读"})
+                break
+    by_term = {}
+    for sym_norm, lst in defs.items():
+        by_term.setdefault(lst[0][0], []).append((sym_norm, lst[0][1], lst[0][2]))
+    drift_count = 0
+    for term_norm, syms in sorted(by_term.items()):
+        if len(syms) > 1 and drift_count < 5:
+            drift_count += 1
+            sym_list = "、".join(s[0] for s in syms)
+            issues.append({"type": "term_symbol_drift", "severity": "warning", "line": syms[0][2], "detail": f"术语-符号漂移：「{syms[0][1]}」同时由符号 {sym_list} 表示——同一含义建议固定一个符号"})
+    summary = {"symbolsDefined": len(defs), "conflicts": sum(1 for i in issues if i["type"] == "symbol_conflict"), "drifts": drift_count}
+    return {"ok": not issues, "issues": issues[:10], "summary": summary, "note": "一符一义冲突=error；符号只核对定义句中的显式映射，未定义先用等归术语检查/人工复核"}
+
+
 # 样本量数字支持千分位逗号（"1,500 名参与者"），解析时去逗号——英文论文常见写法
 ZH_SAMPLE_PATTERN = re.compile(r"(样本量|样本数|样本|被试|受试者|参与者)\s*(?:量|数)?\s*[为约是=:]?\s*(\d{1,3}(?:,\d{3})+|\d{2,6})\s*([名份个人])?")
 EN_SAMPLE_PATTERN = re.compile(r"\b([Nn])\s*=\s*(\d{1,3}(?:,\d{3})+|\d{2,6})\b")
@@ -3841,6 +3918,7 @@ _GATE_REGISTRY = [
     ("links", "链接可信（离线语法与虚假特征）", lambda md, genre: check_links(md)),
     ("vague_attribution", "模糊归因（无引注的'研究表明/专家认为'）", lambda md, genre: check_vague_attribution(md)),
     ("numbers", "数字一致性（口径/加和/百分比）", lambda md, genre: check_numbers(md)),
+    ("symbol", "符号一致性（一符一义/术语-符号漂移）", lambda md, genre: check_symbol_consistency(md)),
     ("stats", "统计红线（p值/效应量/CI）", lambda md, genre: check_stats(md)),
     ("hedging", "断言对冲", lambda md, genre: check_hedging(md)),
     ("sections", "体裁必备章节", lambda md, genre: check_sections(md, genre)),
@@ -4489,6 +4567,11 @@ TOOLS = [
         },
     },
     {
+        "name": "check_symbol_consistency",
+        "description": "符号一致性检查（L3 一致层）：从定义句（'λ 表示学习率'/'where λ denotes…'/'设 λ 为…'）建立符号→含义映射，同一符号被定义为两个不同含义为 error（一符一义红线，读者必然误读），同一含义被多个符号表示为 warning。围栏代码与显示公式不参与；希腊字符与 LaTeX 命名归一化后比对。",
+        "inputSchema": {"type": "object", "properties": {"markdown": {"type": "string"}}, "required": ["markdown"]},
+    },
+    {
         "name": "audit_delta",
         "description": "修复增量对比：对修改前后两版跑同一门禁束，输出 已修复/新引入/仍存在 的差集与净改善判定——智能体每轮修改后调用一次即可验证改动质量，避免按下葫芦浮起瓢。",
         "inputSchema": {
@@ -4557,6 +4640,7 @@ _TOOL_DESC_EN = {
     "check_retraction": "Retraction screening (live, gate tower layer L1): checks each cited work against Crossref update-to / relation.is-retracted-by records and retraction-notice title signatures — external API facts, not heuristics. Citing a retracted work is an error (integrity hardline); network failures are reported as unverifiable (info) per the X-grade discipline and never trip the gate.",
     "check_claim_citation_fit": "Claim-citation fit check (live+cache, gate tower layer L2): for sentences carrying strong-claim wording plus a citation, compares lexical overlap between the claim and the cited source's title/abstract; low overlap suggests manual review. Low fit does not mean a wrong citation (warning-level); sources that cannot be fetched are honestly skipped. Semantic support verification is out of scope (would require model inference).",
     "check_version_mismatch": "Preprint-to-published version mismatch check (live, gate tower layer L2): when a reference entry carries an arXiv identifier, searches Crossref by title for a formally published version (similarity threshold guards against false matches); a hit that is not the preprint itself suggests updating the citation. Warning-level — citing a preprint is not wrong, but the citation should be refreshed when a published version exists.",
+    "check_symbol_consistency": "Symbol consistency check (gate tower layer L3): builds a symbol-to-meaning map from definition sentences ('λ denotes the learning rate' / '设 λ 为学习率'); one symbol defined as two dissimilar meanings is an error (the one-symbol-one-meaning redline), one meaning carried by several symbols is a warning. Fenced code and display math are exempt; Greek characters and LaTeX macro names are normalized before comparison.",
     "audit_delta": "Fix-delta comparison: runs the same gate bundle on before/after manuscripts and reports fixed vs introduced vs persisted findings with a net-improvement verdict, so every agent edit round is verified.",
 }
 
@@ -4606,6 +4690,7 @@ _TOOL_DESC_JA = {
     "check_retraction": "撤稿スクリーニング（オンライン、ゲート塔L1層）：Crossref の update-to / relation.is-retracted-by 記録と撤稿声明タイトルにより、引用文献の撤稿状態を確認（外部APIの事実）。撤稿済み文献の引用はerror（誠信の要警戒事項）、ネットワーク失敗はX級規律に従い unverifiable（info）としてゲートを発動しない。",
     "check_claim_citation_fit": "主張-引用適合検査（オンライン+キャッシュ、ゲート塔L2層）：強い主張表現+引用を含む文について、主張文と被引用文献のタイトル/抄録との語彙重複率を比較し、低過ぎる場合は手動確認を提示。適合度が低い≠引用が誤り（warning）。意味レベルの裏付け検証は対象外（モデル推論が必要）。",
     "check_version_mismatch": "プレプリント-正式版不一致検査（オンライン、ゲート塔L2層）：arXiv識別子を含む文献について、タイトルでCrossref検索し正式発表版が存在すれば引用更新を提示（warning）。プレプリント引用自体は誤りではない。",
+    "check_symbol_consistency": "記号整合性検査（ゲート塔L3層）：定義文（'λ は学習率を表す'/'λ denotes the learning rate'）から記号→意味マップを構築し、同一記号が異なる意味に定義されればerror（一記号一義のレッドライン）、同一意味に複数記号が使われればwarning。コードブロックとディスプレイ数式は対象外。",
     "audit_delta": "修正差分比較：修正前後の原稿に同一ゲート束を実行し、解決/新規/残存を差集合で報告し、純改善判定を返す。",
 }
 
@@ -4811,6 +4896,8 @@ def _call_tool(name: str, arguments: dict) -> dict:
         return _result_text(json.dumps(check_claim_citation_fit(_md(args), int(args.get("max_assessed", 15))), ensure_ascii=False))
     if name == "check_version_mismatch":
         return _result_text(json.dumps(check_version_mismatch(_md(args), int(args.get("max_entries", 30))), ensure_ascii=False))
+    if name == "check_symbol_consistency":
+        return _result_text(json.dumps(check_symbol_consistency(_md(args)), ensure_ascii=False))
     if name == "audit_delta":
         return _result_text(
             audit_delta(

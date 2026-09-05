@@ -1205,6 +1205,7 @@ class TestProtocolHandshake(unittest.TestCase):
                 "check_retraction",
                 "check_claim_citation_fit",
                 "check_version_mismatch",
+                "check_symbol_consistency",
             },
         )
 
