@@ -393,5 +393,47 @@ class TestCheckAbstractPromises(unittest.TestCase):
         self.assertEqual(out["gates"][0]["issues"][0]["type"], "abstract_promise_unfulfilled")
 
 
+class TestCheckRigorDeclarations(unittest.TestCase):
+    """L4 方法层：触发场景→声明在场核对（warning 级）。"""
+
+    DIRTY = (
+        "# T\n\n## 1. 引言\n\n本研究发放问卷并回收，采用 t 检验比较组间差异。\n\n"
+        "## 2. 方法\n\n分析方法如上。\n"
+    )
+    CLEAN = (
+        "# T\n\n## 1. 引言\n\n本研究开展随机对照试验，发放问卷收集数据。\n\n"
+        "## 2. 方法\n\n经正态性检验（Shapiro-Wilk）后采用 ANOVA，Bonferroni 事后检验校正多重比较；"
+        "样本量经效能分析确定（G*Power）；被试随机分组；缺失数据采用多重插补处理。\n"
+    )
+
+    def test_missing_declarations_warn(self):
+        r = paper_tools.check_rigor_declarations(self.DIRTY, genre="empirical")
+        types = {i["type"] for i in r["issues"]}
+        self.assertEqual(types, {"rigor_declaration_missing"})
+        self.assertEqual(len(r["issues"]), 3)
+        self.assertEqual(sorted(r["summary"]["triggered"]), ["missing_data", "normality_test", "power_analysis"])
+        self.assertTrue(all(i["severity"] == "warning" for i in r["issues"]))
+
+    def test_complete_declarations_pass(self):
+        r = paper_tools.check_rigor_declarations(self.CLEAN, genre="empirical")
+        self.assertTrue(r["ok"], r["issues"])
+        self.assertEqual(len(r["summary"]["declared"]), 5)
+
+    def test_non_empirical_skipped(self):
+        r = paper_tools.check_rigor_declarations(self.DIRTY, genre="argumentative")
+        self.assertTrue(r["ok"])
+        self.assertIn("跳过", r["summary"]["note"])
+
+    def test_no_trigger_passes(self):
+        r = paper_tools.check_rigor_declarations("# T\n\n纯理论论证文本。\n", genre="empirical")
+        self.assertTrue(r["ok"])
+        self.assertEqual(r["summary"]["triggered"], [])
+
+    def test_gate_suite_includes_rigor(self):
+        out = json.loads(paper_tools.gate_suite(self.DIRTY, gates="rigor", genre="empirical"))
+        self.assertTrue(out["pass"])
+        self.assertEqual(out["totalWarnings"], 3)
+
+
 if __name__ == "__main__":
     unittest.main()

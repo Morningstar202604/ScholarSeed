@@ -1207,6 +1207,7 @@ class TestProtocolHandshake(unittest.TestCase):
                 "check_version_mismatch",
                 "check_symbol_consistency",
                 "check_abstract_promises",
+                "check_rigor_declarations",
             },
         )
 

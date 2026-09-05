@@ -103,6 +103,7 @@ CHECKERS = {
     "version-mismatch": lambda a: pt.check_version_mismatch(pt._md({"markdown": _read(a.file)})),
     "symbol": lambda a: pt.check_symbol_consistency(pt._md({"markdown": _read(a.file)})),
     "abstract-promises": lambda a: pt.check_abstract_promises(pt._md({"markdown": _read(a.file)})),
+    "rigor": lambda a: pt.check_rigor_declarations(pt._md({"markdown": _read(a.file)}), a.genre),
 }
 
 

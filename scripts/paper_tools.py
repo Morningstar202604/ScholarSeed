@@ -3373,6 +3373,67 @@ def check_abstract_promises(markdown: str) -> dict:
     return {"ok": not issues, "issues": issues, "summary": summary, "note": "零命中才告警（宽松阈值）：正文换措辞不算未兑现；缺摘要归 check_abstract"}
 
 
+# L4 方法层：方法严谨**声明完备性**。statistical-analysis.md 知识的代码化——
+# 工具查"声明了没有"，不判"方法选对了没有"（后者归领域规范与人工）。
+_RIGOR_CHECKS = [
+    ("normality_test", "正态性检验",
+     r"\bt[- ]?test\b|t检验|t 检验|ANOVA|方差分析|线性回归|linear regression|\bPearson\b|皮尔逊",
+     r"正态性|正态分布(?:检验|假设)?|Shapiro[-– ]?Wilk|Kolmogorov[-– ]?Smirnov|normality (?:test|check|assumption)"),
+    ("multiple_comparisons", "多重比较校正",
+     r"ANOVA|方差分析|multiple (?:groups|comparisons)|多组比较|三组|四组",
+     r"多重比较|多重检验|Bonferroni|Holm|Benjamini|FDR|Sidak|Šidák|Tukey|Nemenyi|post[- ]?hoc|事后检验|multiple comparison"),
+    ("power_analysis", "效能/样本量论证",
+     r"\bt[- ]?test\b|t检验|t 检验|ANOVA|方差分析|回归|regression|卡方|chi[- ]?square|χ2",
+     r"效能分析|统计效能|检验效能|power analysis|a priori power|样本量(?:估算|计算|论证)|G\*Power|sample size (?:calculation|determination|justification)"),
+    ("randomization_blinding", "随机化/盲法",
+     r"随机对照|RCT\b|randomized controlled|临床试验|clinical trial|动物实验|animal experiment|in vivo",
+     r"随机(?:分配|分组|化)|random(?:ly|ization|ised|ized)?\s*(?:assign|allocat|divid)|盲法|双盲|单盲|blinded|blinding|masked"),
+    ("missing_data", "缺失数据交代",
+     r"问卷|survey|questionnaire|随访|follow[- ]?up|纵向|longitudinal|panel data",
+     r"缺失(?:数据|值)|missing data|drop[- ]?out|失访|插补|imputation|剔除标准|排除标准|listwise|pairwise"),
+]
+
+
+def check_rigor_declarations(markdown: str, genre: str = "empirical") -> dict:
+    """方法严谨声明完备性检查（L4 方法层，仅实证/学位体裁）。
+
+    检测触发场景（使用 t 检验/ANOVA/回归、声称 RCT、发放问卷等）后核对对应
+    声明是否在场：正态性检验、多重比较校正、效能/样本量论证、随机化/盲法、
+    缺失数据交代。只查声明在场（warning 级）——统计方法选择是否正确不在
+    文本工具射程内，归 statistical-analysis.md 知识与人工复核。
+    """
+    if not markdown or not markdown.strip():
+        return {"ok": True, "issues": []}
+    if (genre or "empirical").lower() not in ("empirical", "thesis"):
+        return {"ok": True, "issues": [], "summary": {"note": f"体裁 [{genre}] 非实证类，方法严谨声明检查跳过"}}
+    body, _refs = _split_body_references(markdown)
+    body = _blank_fences(body)
+    starts = _line_starts(body)
+    issues = []
+    triggered, declared = [], []
+    for key, label, trig, decl in _RIGOR_CHECKS:
+        tm = re.search(trig, body, flags=re.I)
+        if not tm:
+            continue
+        triggered.append(key)
+        dm = re.search(decl, body, flags=re.I)
+        if dm:
+            declared.append(key)
+            continue
+        issues.append({
+            "type": "rigor_declaration_missing",
+            "severity": "warning",
+            "line": _pos_to_line(tm.start(), starts),
+            "detail": f"检测到{label}触发场景但全文未见{label}声明（L{_pos_to_line(tm.start(), starts)} 附近）——方法交代不完整是审稿高频质疑点",
+        })
+    return {
+        "ok": not issues,
+        "issues": issues,
+        "summary": {"triggered": triggered, "declared": declared, "genre": genre},
+        "note": "声明完备性检查：工具查'声明了没有'，不判'方法选对了没有'；全部为 warning 级提示",
+    }
+
+
 # 样本量数字支持千分位逗号（"1,500 名参与者"），解析时去逗号——英文论文常见写法
 ZH_SAMPLE_PATTERN = re.compile(r"(样本量|样本数|样本|被试|受试者|参与者)\s*(?:量|数)?\s*[为约是=:]?\s*(\d{1,3}(?:,\d{3})+|\d{2,6})\s*([名份个人])?")
 EN_SAMPLE_PATTERN = re.compile(r"\b([Nn])\s*=\s*(\d{1,3}(?:,\d{3})+|\d{2,6})\b")
@@ -3981,6 +4042,7 @@ _GATE_REGISTRY = [
     ("numbers", "数字一致性（口径/加和/百分比）", lambda md, genre: check_numbers(md)),
     ("symbol", "符号一致性（一符一义/术语-符号漂移）", lambda md, genre: check_symbol_consistency(md)),
     ("stats", "统计红线（p值/效应量/CI）", lambda md, genre: check_stats(md)),
+    ("rigor", "方法严谨声明完备性（仅实证体裁）", lambda md, genre: check_rigor_declarations(md, genre)),
     ("hedging", "断言对冲", lambda md, genre: check_hedging(md)),
     ("sections", "体裁必备章节", lambda md, genre: check_sections(md, genre)),
     ("abstract_promises", "摘要承诺↔正文兑现", lambda md, genre: check_abstract_promises(md)),
@@ -4639,6 +4701,18 @@ TOOLS = [
         "inputSchema": {"type": "object", "properties": {"markdown": {"type": "string"}}, "required": ["markdown"]},
     },
     {
+        "name": "check_rigor_declarations",
+        "description": "方法严谨声明完备性检查（L4 方法层，仅实证/学位体裁）：检测触发场景（t 检验/ANOVA/回归、声称 RCT、发放问卷等）后核对声明在场——正态性检验、多重比较校正、效能/样本量论证、随机化/盲法、缺失数据交代。只查'声明了没有'（warning），不判'方法选对了没有'。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "markdown": {"type": "string"},
+                "genre": {"type": "string", "description": "survey | empirical | tech | thesis | argumentative，默认 empirical（非实证体裁跳过）", "default": "empirical"},
+            },
+            "required": ["markdown"],
+        },
+    },
+    {
         "name": "audit_delta",
         "description": "修复增量对比：对修改前后两版跑同一门禁束，输出 已修复/新引入/仍存在 的差集与净改善判定——智能体每轮修改后调用一次即可验证改动质量，避免按下葫芦浮起瓢。",
         "inputSchema": {
@@ -4709,6 +4783,7 @@ _TOOL_DESC_EN = {
     "check_version_mismatch": "Preprint-to-published version mismatch check (live, gate tower layer L2): when a reference entry carries an arXiv identifier, searches Crossref by title for a formally published version (similarity threshold guards against false matches); a hit that is not the preprint itself suggests updating the citation. Warning-level — citing a preprint is not wrong, but the citation should be refreshed when a published version exists.",
     "check_symbol_consistency": "Symbol consistency check (gate tower layer L3): builds a symbol-to-meaning map from definition sentences ('λ denotes the learning rate' / '设 λ 为学习率'); one symbol defined as two dissimilar meanings is an error (the one-symbol-one-meaning redline), one meaning carried by several symbols is a warning. Fenced code and display math are exempt; Greek characters and LaTeX macro names are normalized before comparison.",
     "check_abstract_promises": "Abstract-promise fulfillment check (gate tower layer L3): extracts promise sentences from the abstract (we propose / 本研究提出 / 提出了一种…) and reports when the promised object's key terms never appear in the body — the direct source of 'discrepancy between abstract and body' reviewer comments. A lenient zero-overlap threshold avoids false alarms on reworded bodies; missing abstracts belong to check_abstract.",
+    "check_rigor_declarations": "Methodological rigor declaration check (gate tower layer L4, empirical/thesis genres): when a trigger scenario is detected (t-tests/ANOVA/regression, claimed RCT, questionnaire surveys), verifies the corresponding statement is present — normality testing, multiple-comparison correction, power/sample-size justification, randomization/blinding, missing-data handling. Presence only (warnings); whether the chosen method is correct is outside text-tool scope.",
     "audit_delta": "Fix-delta comparison: runs the same gate bundle on before/after manuscripts and reports fixed vs introduced vs persisted findings with a net-improvement verdict, so every agent edit round is verified.",
 }
 
@@ -4760,6 +4835,7 @@ _TOOL_DESC_JA = {
     "check_version_mismatch": "プレプリント-正式版不一致検査（オンライン、ゲート塔L2層）：arXiv識別子を含む文献について、タイトルでCrossref検索し正式発表版が存在すれば引用更新を提示（warning）。プレプリント引用自体は誤りではない。",
     "check_symbol_consistency": "記号整合性検査（ゲート塔L3層）：定義文（'λ は学習率を表す'/'λ denotes the learning rate'）から記号→意味マップを構築し、同一記号が異なる意味に定義されればerror（一記号一義のレッドライン）、同一意味に複数記号が使われればwarning。コードブロックとディスプレイ数式は対象外。",
     "check_abstract_promises": "抄録承诺の履行検査（ゲート塔L3層）：抄録の提案文（we propose/本研究提出）を抽出し、その対象キーワードが本文に全く現れない場合に警告——「抄録と本文の不一致」審査意見の直接の源泉。緩い閾値で誤報を防止。",
+    "check_rigor_declarations": "方法論的厳密性声明検査（ゲート塔L4層、実証/学位論文体裁）：トリガー検出（t検定/ANOVA/RCT/アンケート等）後に対応する声明の存在を確認——正規性検定、多重比較補正、検定力/サンプルサイズ、ランダム化/盲検、欠損データ。声明の存在のみ確認（warning）。",
     "audit_delta": "修正差分比較：修正前後の原稿に同一ゲート束を実行し、解決/新規/残存を差集合で報告し、純改善判定を返す。",
 }
 
@@ -4969,6 +5045,8 @@ def _call_tool(name: str, arguments: dict) -> dict:
         return _result_text(json.dumps(check_symbol_consistency(_md(args)), ensure_ascii=False))
     if name == "check_abstract_promises":
         return _result_text(json.dumps(check_abstract_promises(_md(args)), ensure_ascii=False))
+    if name == "check_rigor_declarations":
+        return _result_text(json.dumps(check_rigor_declarations(_md(args), str(args.get("genre", "empirical"))), ensure_ascii=False))
     if name == "audit_delta":
         return _result_text(
             audit_delta(
