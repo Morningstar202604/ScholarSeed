@@ -86,7 +86,7 @@ One engine, two surfaces:
 
 ## The Writing Pipeline
 
-The five bundled skills turn 33 tools into a pipeline (topic → literature → outline → drafting → citation verification → polish → pre-submission review → publish). The agent writes prose; the skills force a tool gate at every stage and forbid advancing until it passes:
+The five bundled skills turn 41 tools into a pipeline (topic → literature → outline → drafting → citation verification → polish → pre-submission review → publish). The agent writes prose; the skills force a tool gate at every stage and forbid advancing until it passes:
 
 | Pipeline stage | Gate tool | Pass condition |
 |---|---|---|
@@ -257,7 +257,7 @@ All external API calls are disk-cached (default TTL 24h, tunable via `SCHOLARSEE
 
 ## Corpus Benchmark
 
-Gate thresholds calibrated on **70 arXiv papers across 9 disciplines**: all 70 scored in the low band of the style lint (zero false alarms on the human corpus), median audit score 82 with healthy spread. Measured honestly: **this is a negative-sample benchmark only** — detection recall on AI-written positives is not yet measured (planned; see ). See [docs/CORPUS-BENCHMARK.md](docs/CORPUS-BENCHMARK.md).
+Gate thresholds calibrated on **70 arXiv papers across 9 disciplines**: all 70 scored in the low band of the style lint (zero false alarms on the human corpus), median audit score 82 with healthy spread. Measured honestly: **this is a negative-sample benchmark only** — detection recall on AI-written positives is not yet measured (planned; see [docs/ROADMAP.md](docs/ROADMAP.md)). See [docs/CORPUS-BENCHMARK.md](docs/CORPUS-BENCHMARK.md).
 
 ## Install
 
@@ -321,7 +321,7 @@ English and Chinese text are first-class (bilingual lexicons throughout); LaTeX 
 So it runs on any machine with Python — lab servers, student laptops, air-gapped review environments, CI containers — with nothing to break and nothing to audit beyond our code.
 
 **How do I trust the heuristics aren't tuned ad hoc?**
-Thresholds may only change with corpus-level regression re-runs (anti-overfitting rules in CORPUS-BENCHMARK.md), enforced through 212 unit tests and a release gate in CI on Python 3.9–3.13.
+Thresholds may only change with corpus-level regression re-runs (anti-overfitting rules in CORPUS-BENCHMARK.md), enforced through 237 unit tests and a release gate in CI on Python 3.9–3.13.
 
 ## Compatibility
 
